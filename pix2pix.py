@@ -3,12 +3,17 @@ PIX2PIX
 
 pix2pix Image-to-Image Translation GAN
 
-Resources:
+Referances:
     https://medium.com/@Skpd/pix2pix-gan-for-generating-map-given-satellite-images-using-pytorch-6e50c318673a
     https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html
 '''
 import torch
 import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+
+from tqdm import tqdm
+
+import utils
     
 class Down_Block(nn.Module):
     '''
@@ -178,7 +183,7 @@ class Generator(nn.Module):
         # output
         return out
     
-class Descriminator(nn.Module):
+class Discriminator(nn.Module):
     def __init__(self, in_channels:int=3, features:list[int]=[64, 128, 256, 512]):
         super().__init__()
         # add initial layer
@@ -189,6 +194,7 @@ class Descriminator(nn.Module):
             )
         ]
 
+        in_channels = features[0]
         for feature in features[1:]:
             # determine stride
             if feature == features[-1]:
@@ -204,6 +210,9 @@ class Descriminator(nn.Module):
                     nn.LeakyReLU(0.2)
                 )
             )
+
+            # store in channels
+            in_channels = feature
 
         # add final layer
         layers.append(
@@ -231,3 +240,171 @@ class Descriminator(nn.Module):
 
         # output
         return out
+    
+class Image2Image():
+    '''
+    Image-to-Image class
+
+    Args:
+        learning_rate (float) : optimizer learning rate (default=2e-4)
+        beta1 (float) : optimizer beta1 (default=0.5)
+    
+    '''
+    def __init__(self, learning_rate:float=2e-4, beta1:float=0.5):
+        # create models
+        self.net_dis = Discriminator(in_channels=3).cuda()
+        self.net_gen = Generator(in_channels=3).cuda()
+
+        # store hyperparameters
+        self.learning_rate = learning_rate
+        self.beta1 = beta1
+
+        # setup optimizer
+        self.opt_dis = torch.optim.Adam(self.net_dis.parameters(), lr=learning_rate, betas=(beta1, 0.999))
+        self.opt_gen = torch.optim.Adam(self.net_gen.parameters(), lr=learning_rate, betas=(beta1, 0.999))
+
+        # setup loss
+        self.BCE_Loss = nn.BCEWithLogitsLoss()
+        self.L1_Loss = nn.L1Loss()
+
+        # lost history
+        self.history = {
+            'dis' : [],
+            'gen' : []
+        }
+
+    def epoch(self, loader:DataLoader, l1_lambda:float=100.0) -> None:
+        '''
+        Train for an epoch
+
+        Args:
+            loader (Dataloader) : dataloader with data
+            l1_lambda (float) : L1 loss scale (default=100.0)
+
+        Returns:
+            None
+        '''
+        # loop
+        for x, y in tqdm(loader):
+            # GPU acceleration
+            x = x.cuda()
+            y = y.cuda()
+
+            # generate image
+            y_fake = self.net_gen(x)
+
+            # real image
+            dis_real = self.net_dis(x, y)
+            dis_real_loss = self.BCE_Loss(dis_real, torch.ones_like(dis_real))
+
+            # fake image
+            dis_fake = self.net_dis(x, y_fake.detach())
+            dis_fake_loss = self.BCE_Loss(dis_fake, torch.zeros_like(dis_fake))
+
+            # average loss
+            dis_loss = (dis_real_loss + dis_fake_loss) / 2
+
+            # store loss
+            self.history['dis'].append(dis_loss.cpu().detach())
+
+            # train discriminator
+            self.net_dis.zero_grad()
+            dis_loss.backward()
+            self.opt_dis.step()
+            
+            # compute loss
+            dis_fake = self.net_dis(x, y_fake)
+            gen_fake_loss = self.BCE_Loss(dis_fake, torch.ones_like(dis_fake))
+
+            gen_loss = gen_fake_loss + self.L1_Loss(y_fake,y) * l1_lambda
+            
+            # store loss
+            self.history['gen'].append(gen_loss.cpu().detach())
+
+            # train generator
+            self.opt_gen.zero_grad()
+            gen_loss.backward()
+            self.opt_gen.step()
+
+    def train(self, dataset:Dataset, epochs:int=800, batch_size:int=16, load:bool=True, checkpoint:bool=True) -> None:
+        '''
+        Train Image-to-Image model
+
+        Args:
+            dataset (Dataset) : torch dataset to train on
+            epochs (int) : number of epochs (default=800)
+            batch_size (int) : size of batch of data (default=16)
+            load (bool) : load checkpoint
+            checkpoint (bool) : save checkpoints
+
+        Returns:
+            None
+        '''
+        # create dataloader
+        loader = DataLoader(dataset, batch_size, shuffle=True)
+
+        # load model
+        if load:
+            utils.load_checkpoint(self.net_dis, self.opt_dis, self.learning_rate, 'cuda:0', 'checkpoints\\checkpoint_dis.pt')
+            utils.load_checkpoint(self.net_dis, self.opt_dis, self.learning_rate, 'cuda:0', 'checkpoints\\checkpoint_gen.pt')
+
+        # train at each epoch
+        for epoch in range(epochs):
+            # train for an epoch
+            self.epoch(loader)
+
+            # save checkpoint
+            if checkpoint:
+                utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_dis-{epoch}.pt')
+                utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_gen-{epoch}.pt')
+
+    def plot_history(self) -> None:
+        '''
+        Plot loss history
+
+        Args:
+            None
+
+        Returns:
+            None
+        '''
+        utils.plot_loss(self.history)
+
+    def plot_predictions(self, dataset:Dataset) -> None:
+        '''
+        Plot some predictions
+
+        Args:
+            dataset (Dataset) : dataset to predict with
+
+        Returns:
+            None
+        '''
+        loader = DataLoader(dataset, batch_size=64)
+
+        x, y = next(iter(loader))
+
+        with torch.no_grad():
+            pred = self.net_gen(x.cuda()).cpu().detach()
+
+        # plot
+        utils.plot_images(x * 0.5 + 0.5, 'Input Images', show=False)
+        utils.plot_images(y * 0.5 + 0.5, 'Target Images', show=False)
+        utils.plot_images(pred * 0.5 + 0.5, 'Pred Images')
+
+if __name__ == '__main__':
+    def test_disc():
+        x = torch.randn((1, 3, 256, 256))
+        y = torch.randn((1, 3, 256, 256))
+        Model = Discriminator()
+        print(Model.model)
+        pred = Model(x, y)
+        print(pred.shape)
+    test_disc()
+
+    def test_gen():
+        x = torch.randn((1, 3, 256, 256))
+        model = Generator(in_channels=3, features=64)
+        preds = model(x)
+        print(preds.shape)
+    test_gen()

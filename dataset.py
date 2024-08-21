@@ -3,12 +3,11 @@ DATASET
 
 Dataset reader
 
-Resources:
+Referances:
 
 '''
 import os
 import cv2
-import matplotlib.pyplot as plt
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -18,15 +17,19 @@ from albumentations.pytorch import ToTensorV2
 
 from typing import Union
 
+import utils
+
 ROOT = 'datasets'
 
 transform_input = A.Compose([
     A.Resize(width=256, height=256),
+    A.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], max_pixel_value=255.0),
     ToTensorV2()
 ])
 
 transform_target = A.Compose([
     A.Resize(width=256, height=256),
+    A.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], max_pixel_value=255.0),
     ToTensorV2()
 ])
 
@@ -97,16 +100,6 @@ if __name__ == '__main__':
 
     x, y = next(iter(loader))
 
-    # plot 
-    for name, data in [('Input Images', x), ('Target Images', y)]:
-        fig = plt.figure(figsize=(8, 8))
-        fig.suptitle(name, fontsize=16)
-        for i in range(25):
-            plt.subplot(5, 5, i+1)
-
-            plt.xticks([])
-            plt.yticks([])
-            plt.grid(False)
-
-            plt.imshow(data[i].permute(1,2,0), cmap=plt.cm.binary)
-    plt.show()
+    # plot
+    utils.plot_images(x, 'Input Images', show=False)
+    utils.plot_images(y, 'Target Images')
