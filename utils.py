@@ -94,7 +94,7 @@ def save_checkpoint(model, optimizer, filename:str='checkpoints\\checkpoint.pt')
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }
-    torch.save(checkpoint, os.path.abs(filename))
+    torch.save(checkpoint, os.path.abspath(filename))
 
 def load_checkpoint(model, optimizer, learning_rate:float, device, filename:str='checkpoints\\checkpoint.pt'):
     '''
@@ -110,7 +110,7 @@ def load_checkpoint(model, optimizer, learning_rate:float, device, filename:str=
     Returns:
         None
     '''
-    checkpoint = torch.load(os.path.abs(filename), map_location=device)
+    checkpoint = torch.load(os.path.abspath(filename), map_location=device)
 
     # assign state
     model.load_state_dict(checkpoint["model_state_dict"])

@@ -16,6 +16,6 @@ val = dataset.I2I_Dataset('datasets\\maps\\val')
 
 i2i = pix2pix.Image2Image()
 
-i2i.train(train, epochs=20, load=False)
+i2i.train(train, epochs=20, load=0)
 i2i.plot_history()
 i2i.plot_predictions(val)

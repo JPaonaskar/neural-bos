@@ -326,7 +326,7 @@ class Image2Image():
             gen_loss.backward()
             self.opt_gen.step()
 
-    def train(self, dataset:Dataset, epochs:int=800, batch_size:int=16, load:bool=True, checkpoint:bool=True) -> None:
+    def train(self, dataset:Dataset, epochs:int=800, batch_size:int=16, load:int=0, checkpoint:bool=True) -> None:
         '''
         Train Image-to-Image model
 
@@ -334,7 +334,7 @@ class Image2Image():
             dataset (Dataset) : torch dataset to train on
             epochs (int) : number of epochs (default=800)
             batch_size (int) : size of batch of data (default=16)
-            load (bool) : load checkpoint
+            load (int) : load checkpoint from specified epoch
             checkpoint (bool) : save checkpoints
 
         Returns:
@@ -345,8 +345,8 @@ class Image2Image():
 
         # load model
         if load:
-            utils.load_checkpoint(self.net_dis, self.opt_dis, self.learning_rate, 'cuda:0', 'checkpoints\\checkpoint_dis.pt')
-            utils.load_checkpoint(self.net_dis, self.opt_dis, self.learning_rate, 'cuda:0', 'checkpoints\\checkpoint_gen.pt')
+            utils.load_checkpoint(self.net_dis, self.opt_dis, self.learning_rate, 'cuda:0', f'checkpoints\\checkpoint_dis-{load}.pt')
+            utils.load_checkpoint(self.net_dis, self.opt_dis, self.learning_rate, 'cuda:0', f'checkpoints\\checkpoint_gen-{load}.pt')
 
         # train at each epoch
         for epoch in range(epochs):
@@ -355,8 +355,8 @@ class Image2Image():
 
             # save checkpoint
             if checkpoint:
-                utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_dis-{epoch}.pt')
-                utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_gen-{epoch}.pt')
+                utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_dis-{epoch+1}.pt')
+                utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_gen-{epoch+1}.pt')
 
     def plot_history(self) -> None:
         '''
