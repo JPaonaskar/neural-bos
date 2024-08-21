@@ -326,7 +326,7 @@ class Image2Image():
             gen_loss.backward()
             self.opt_gen.step()
 
-    def train(self, dataset:Dataset, epochs:int=800, batch_size:int=16, load:int=0, checkpoint:bool=True) -> None:
+    def train(self, dataset:Dataset, epochs:int=800, batch_size:int=16, load:int=0, checkpoint:int=0) -> None:
         '''
         Train Image-to-Image model
 
@@ -334,8 +334,8 @@ class Image2Image():
             dataset (Dataset) : torch dataset to train on
             epochs (int) : number of epochs (default=800)
             batch_size (int) : size of batch of data (default=16)
-            load (int) : load checkpoint from specified epoch
-            checkpoint (bool) : save checkpoints
+            load (int) : load checkpoint from specified epoch (default=0)
+            checkpoint (int) : number of epochs per checkpoints (default=0)
 
         Returns:
             None
@@ -354,7 +354,7 @@ class Image2Image():
             self.epoch(loader)
 
             # save checkpoint
-            if checkpoint:
+            if checkpoint and (epoch % checkpoint == 0):
                 utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_dis-{epoch+1}.pt')
                 utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_gen-{epoch+1}.pt')
 
