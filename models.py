@@ -37,6 +37,8 @@ BLOCK_NEGITIVE_SLOPE = 'negitive_slope'
 
 BLOCK_DROPOUT = 'dropout'
 
+BLOCK_BIAS = 'bias'
+
 ACTIVATION_LINEAR = 'linear'
 ACTIVATION_RELU = 'relu'
 ACTIVATION_LEAKY = 'leaky'
@@ -177,10 +179,13 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict]]:
                 dropout = 0.0
 
             # check for bias
-            if batch_norm:
-                bias = False
-            else:
-                bias = True
+            try:
+                bias = eval(block[BLOCK_BIAS]) ##### Not the safest of conversions
+            except KeyError:
+                if batch_norm:
+                    bias = False
+                else:
+                    bias = True
 
             # set input size
             in_feature = features[-1]
@@ -321,5 +326,9 @@ class Model(nn.Module):
 
 if __name__ == '__main__':
     gen = Model('configs\\generator.cfg')
-    print(gen)
-    print(gen(torch.zeros(1, 3, 256, 256)).shape)
+    #print(gen)
+    print(gen(torch.zeros(1, 3, 256, 256)).shape) # torch.Size([1, 3, 256, 256])
+
+    dis = Model('configs\\discriminator.cfg')
+    #print(dis)
+    print(dis(torch.zeros(1, 6, 256, 256)).shape) # torch.Size([1, 1, 59, 59])
