@@ -60,7 +60,7 @@ class I2I_Dataset(Dataset):
 
     def __getitem__(self, idx:Union[list, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         '''
-        Length of dataset
+        Get dataset item at index
 
         Args:
             idx (list, torch.Tensor) : indexes
