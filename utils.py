@@ -10,6 +10,8 @@ import os
 
 import torch
 import numpy as np
+
+import cv2
 import matplotlib.pyplot as plt
 
 def plot_images(data:torch.Tensor, title:str='data', rows:int=5, cols:int=5, show:bool=True) -> None:
@@ -41,12 +43,68 @@ def plot_images(data:torch.Tensor, title:str='data', rows:int=5, cols:int=5, sho
         plt.yticks([])
         plt.grid(False)
 
+        # get copy of image
+        img = data[i].permute(1, 2, 0).detach().clone()
+
+        # reformat image if needed
+        if img.min() < 0:
+            img = img.type(torch.float)
+            img = img - img.min()
+            img = img / img.max()
+
         # show image
-        plt.imshow(data[i].permute(1,2,0), cmap=plt.cm.binary)
+        plt.imshow(img, cmap=plt.cm.binary)
 
     # show figure
     if show:
         plt.show()
+
+def plot_bos_images(data:torch.Tensor) -> None:
+    '''
+    Plot a some images
+
+    Args:
+        data (torch.Tensor) : data to plot
+
+    Returns:
+        None
+    '''
+    # setup window
+    cv2.namedWindow('BOS Images')
+
+    # populate
+    ind = 0
+    channel = 0
+    while True:
+        # pull and convert
+        if torch.is_tensor(data[ind]):
+            img = data[ind][channel, :, :].numpy()
+        else:
+            img = data[ind][:, :, channel]
+        img = (img * 0.5 + 0.5)
+
+        # show
+        cv2.imshow('BOS Images', img)
+        k = cv2.waitKey(0)
+
+        # quit
+        if k == ord('q'):
+            break
+        
+        # switch between images
+        elif (k == ord('a')) and ind > 0:
+            ind -= 1
+
+        elif (k == ord('d')) and ind < len(data) - 1:
+            ind += 1
+
+        # toggle betweem background and displaced
+        elif k == ord('w') and channel < 2:
+            channel += 1
+
+        elif k == ord('s') and channel > 0:
+            channel -= 1
+
 
 def plot_loss(losses:dict, show:bool=True) -> None:
     '''
