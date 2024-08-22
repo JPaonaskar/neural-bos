@@ -208,11 +208,14 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict]]:
             if activation == ACTIVATION_RELU:
                 sequence.append(nn.ReLU())
 
-            if activation == ACTIVATION_LEAKY:
+            elif activation == ACTIVATION_LEAKY:
                 sequence.append(nn.LeakyReLU(negitive_slope))
 
-            if activation == ACTIVATION_TANH:
+            elif activation == ACTIVATION_TANH:
                 sequence.append(nn.Tanh())
+
+            elif activation != ACTIVATION_LINEAR:
+                raise ValueError(f'Activation \'{activation}\' is not recongized')
 
             # add dropout
             if dropout:
