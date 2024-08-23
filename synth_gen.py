@@ -495,23 +495,20 @@ if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
     # create density maps
-    map1 = Perlin(width=512, height=512, octaves=[6])
-    map2 = Perlin(width=512, height=512, octaves=[6, 12])
-    map3 = Perlin(width=512, height=512, octaves=[6, 12, 24])
-    map4 = Perlin(width=512, height=512, octaves=[8])
-    map5 = Perlin(width=512, height=512, octaves=[8, 16])
-    map6 = Perlin(width=512, height=512, octaves=[8, 16, 32])
-    map7 = Perlin(width=512, height=512, octaves=[4])
-    map8 = Perlin(width=512, height=512, octaves=[4, 8])
+    map1 = Perlin(width=512, height=512, octaves=[4])
+    map2 = Perlin(width=512, height=512, octaves=[6])
+    map3 = Perlin(width=512, height=512, octaves=[8])
+    map4 = Perlin(width=512, height=512, octaves=[4, 8])
+    map5 = Perlin(width=512, height=512, octaves=[6, 12])
 
-    d_map = Density_Maps((0.125, map1), (0.125, map2), (0.125, map3), (0.125, map4), (0.125, map5), (0.125, map6), (0.125, map7), (0.125, map8))
+    d_map = Density_Maps((0.25, map1), (0.25, map2), (0.2, map3), (0.2, map4), (0.1, map5))
 
     # create dataset
     data = BOS_Dataset_Generator(d_map, length=800, width=512, height=512)
-    data.build('datasets\\bos\\train')
+    data.build('datasets\\perlin\\train')
 
     # show part of the dataset
-    dataset = BOS_Dataset('datasets\\bos\\train')
+    dataset = BOS_Dataset('datasets\\perlin\\train')
     loader = DataLoader(dataset, batch_size=25)
 
     x, y = next(iter(loader))

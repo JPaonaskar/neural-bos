@@ -13,8 +13,8 @@ import models
 import dataset
 import synth_gen
 
-train = synth_gen.BOS_Dataset('datasets\\bos\\train', clamped=True)
-#train = dataset.I2I_Dataset('datasets\\maps\\train')
+#train = synth_gen.BOS_Dataset('datasets\\bos\\train', clamped=True)
+train = dataset.I2I_Dataset('datasets\\maps\\train')
 
 i2i = models.Image2Image(torch.device('cuda'))
 
