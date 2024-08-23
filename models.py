@@ -255,7 +255,7 @@ class Model(nn.Module):
     Args:
         filename (str) : config file to read (default=None)
     '''
-    def __init__(self, filename:str=None):
+    def __init__(self, filename:str=''):
         super().__init__()
 
         # layers
@@ -422,7 +422,7 @@ class Image2Image(nn.Module):
         self.history['Discriminator'].append(dis_loss.cpu().detach())
         self.history['Generator'].append(gen_loss.cpu().detach())
 
-    def train(self, dataset:Dataset, epochs:int=800, batch_size:int=16) -> None:
+    def learn(self, dataset:Dataset, epochs:int=800, batch_size:int=16) -> None:
         '''
         Train Image-to-Image model
 
@@ -434,6 +434,9 @@ class Image2Image(nn.Module):
         Returns:
             None
         '''
+        # set to training
+        self.train()
+        
         # create dataloader
         loader = DataLoader(dataset, batch_size, shuffle=True)
 
@@ -444,7 +447,7 @@ class Image2Image(nn.Module):
                 # train
                 self.step(x, y)
 
-    def predict(self, dataset:Dataset, batch_size:int=16) -> torch.Tensor:
+    def predict(self, dataset:Dataset, batch_size:int=16) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         '''
         Predict a batch
 
@@ -453,8 +456,13 @@ class Image2Image(nn.Module):
             batch_size (int) : size of batch of data (default=16)
 
         Returns:
+            x (torch.Tensor) : input images
+            y (torch.Tensor) : target images
             pred (torch.Tensor) : prediction
         '''
+        # set to eval
+        self.eval()
+
         # create dataloader
         loader = DataLoader(dataset, batch_size, shuffle=True)
 
