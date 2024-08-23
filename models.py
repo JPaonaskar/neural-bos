@@ -13,6 +13,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
+import utils
+
 CONFIG_ASSIGNMENT = '='
 CONFIG_COMMENT = '#'
 CONFIG_BLOCK = '['
@@ -422,7 +424,7 @@ class Image2Image(nn.Module):
         self.history['Discriminator'].append(dis_loss.cpu().detach())
         self.history['Generator'].append(gen_loss.cpu().detach())
 
-    def learn(self, dataset:Dataset, epochs:int=800, batch_size:int=16) -> None:
+    def learn(self, dataset:Dataset, epochs:int=800, batch_size:int=16, checkpoints:int=10, last_checkpoint:str=None) -> None:
         '''
         Train Image-to-Image model
 
@@ -430,6 +432,8 @@ class Image2Image(nn.Module):
             dataset (Dataset) : torch dataset to train on
             epochs (int) : number of epochs (default=800)
             batch_size (int) : size of batch of data (default=16)
+            checkpoints (int) : number of epochs per checkpoint
+            last_checkpoint (str) : path to last checkpoint
 
         Returns:
             None
@@ -440,20 +444,37 @@ class Image2Image(nn.Module):
         # create dataloader
         loader = DataLoader(dataset, batch_size, shuffle=True)
 
+        # load checkpoint
+        epoch0 = 0
+        if last_checkpoint:
+            epoch0 = self.load_checkpoint(last_checkpoint)
+
         # loop through epochs
-        for epoch in tqdm(range(epochs)):
+        for epoch in tqdm(range(epoch0, epochs)):
             # loop through batches
             for x, y in tqdm(loader, desc=f'Epoch {epoch+1}', leave=False):
                 # train
                 self.step(x, y)
 
-    def predict(self, dataset:Dataset, batch_size:int=16) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            # checkpoint
+            if (epoch + 1) % checkpoints == 0:
+                name = f'epoch_{epoch+1}'
+                self.save_checkpoint(epoch=epoch+1, name=name)
+
+                # save sample
+                x, y, pred = self.predict(dataset)
+
+                utils.save_sample(x.cpu(), y, pred.cpu(), name=name)
+
+
+    def predict(self, dataset:Dataset, batch_size:int=16, shuffle:bool=False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         '''
         Predict a batch
 
         Args:
             dataset (Dataset) : torch dataset to train on
             batch_size (int) : size of batch of data (default=16)
+            shuffle (bool) : shuffle dataset (default=False)
 
         Returns:
             x (torch.Tensor) : input images
@@ -464,7 +485,7 @@ class Image2Image(nn.Module):
         self.eval()
 
         # create dataloader
-        loader = DataLoader(dataset, batch_size, shuffle=True)
+        loader = DataLoader(dataset, batch_size, shuffle=shuffle)
 
         # pull
         x, y = next(iter(loader))
@@ -474,6 +495,67 @@ class Image2Image(nn.Module):
 
         # return prediction
         return x.cpu().detach(), y, pred.cpu().detach()
+    
+    def save_checkpoint(self, epoch:int=0, dirname:str='checkpoints', name:str='checkpoint') -> None:
+        '''
+        Save a checkpoint
+
+        Args:
+            epoch (int) : current epoch
+            dirname (str) : directory to save to
+            name (str) : checkpoint save name
+
+        Returns:
+            None
+        '''
+        # make path
+        path = os.path.abspath(dirname)
+        path = os.path.join(path, f'{name}.pt')
+
+        # create checkpoint
+        checkpoint = {
+            'epoch' : epoch,
+            'gen_state_dict': self.gen.state_dict(),
+            'dis_state_dict': self.dis.state_dict(),
+            'opt_gen_state_dict': self.opt_gen.state_dict(),
+            'opt_dis_state_dict': self.opt_dis.state_dict(),
+        }
+
+        # save
+        torch.save(checkpoint, path)
+
+    def load_checkpoint(self, filename:str='checkpoints') -> int:
+        '''
+        Load a checkpoint
+
+        Args:
+            filename (str) : checkpoint filename / path
+
+        Returns:
+            epoch (int) : last epoch
+        '''
+        # make path
+        path = os.path.abspath(filename)
+
+        # load checkpoint
+        checkpoint = torch.load(path, map_location=self.device)
+
+        # assign state
+        self.gen.load_state_dict(checkpoint["gen_state_dict"])
+        self.dis.load_state_dict(checkpoint["dis_state_dict"])
+
+        self.opt_gen.load_state_dict(checkpoint["opt_gen_state_dict"])
+        self.opt_dis.load_state_dict(checkpoint["opt_dis_state_dict"])
+
+        # set learning rates
+        for param_group in self.opt_gen.param_groups:
+            param_group["lr"] = float(self.gen.info[INFO_LEARNING_RATE])
+
+        for param_group in self.opt_dis.param_groups:
+            param_group["lr"] = float(self.dis.info[INFO_LEARNING_RATE])
+
+        # return epoch
+        return checkpoint['epoch']
 
 if __name__ == '__main__':
     gen = Model('configs\\generator.cfg')
