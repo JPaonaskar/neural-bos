@@ -1,0 +1,8 @@
+'''
+SUPERSONICS
+
+Supersonic equations
+
+Referances:
+
+'''
