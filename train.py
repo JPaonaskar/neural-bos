@@ -11,13 +11,15 @@ import torch
 import utils
 import models
 import dataset
+import synth_gen
 
-train = dataset.I2I_Dataset('datasets\\bos\\train') #'datasets\\maps\\train')
-#val = dataset.I2I_Dataset() #'datasets\\maps\\val')
+#train = synth_gen.BOS_Dataset('datasets\\bos\\train')
+train = dataset.I2I_Dataset('datasets\\bos\\train')
+#train = dataset.I2I_Dataset('datasets\\maps\\train')
 
 i2i = models.Image2Image(torch.device('cuda'))
 
-i2i.learn(train, epochs=20)
+i2i.learn(train, epochs=25, checkpoints=5)#, last_checkpoint='checkpoints\epoch_10.pt')
 utils.plot_loss(i2i.history)
 
 x, y, pred = i2i.predict(train, batch_size=25)

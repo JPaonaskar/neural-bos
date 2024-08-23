@@ -136,44 +136,35 @@ def plot_loss(losses:dict, show:bool=True) -> None:
     if show:
         plt.show()
 
-def save_checkpoint(model, optimizer, filename:str='checkpoints\\checkpoint.pt') -> None:
+def save_sample(x:torch.Tensor, y:torch.Tensor, pred:torch.Tensor, dirname:str='samples', name:str='sample') -> None:
     '''
-    Save a checkpoint
+    Save a sample of data
 
     Args:
-        model () : model to save
-        optimizer () : optimizer to save
-        filename (str) : save file
+        x (torch.Tensor) : input image
+        y (torch.Tensor) : target image
+        pred (torch.Tensor) : predicted image
+        dirname (str) : sample image save directory
+        name (str) : name of sample image
 
     Returns:
         None
     '''
-    checkpoint = {
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-    }
-    torch.save(checkpoint, os.path.abspath(filename))
+    # create path
+    path = os.path.abspath(dirname)
+    path = os.path.join(path, f'{name}.tif')
 
-def load_checkpoint(model, optimizer, learning_rate:float, device, filename:str='checkpoints\\checkpoint.pt'):
-    '''
-    Load a checkpoint
+    # get first image set
+    x = x[0].permute(1, 2, 0).detach().clone().numpy()
+    y = y[0].permute(1, 2, 0).detach().clone().numpy()
+    pred = pred[0].permute(1, 2, 0).detach().clone().numpy()
 
-    Args:
-        model () : model to load checkpoint to
-        optimizer () : optimizer to load checkpoint to
-        learning_rate (float) : current learning rate
-        device () : device to send to
-        filename (str) : file to load from
+    # stack
+    image = np.hstack([x, y, pred])
 
-    Returns:
-        None
-    '''
-    checkpoint = torch.load(os.path.abspath(filename), map_location=device)
+    # convert
+    image = (image * 127 + 127).astype(np.uint8)
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-    # assign state
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-
-    # set learning rate
-    for param_group in optimizer.param_groups:
-        param_group["lr"] = learning_rate
+    # save
+    cv2.imwrite(path, image)
