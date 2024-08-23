@@ -29,7 +29,8 @@ transform = A.Compose([
 ], additional_targets={'target' : 'image'})
 
 transform_input = A.Compose([
-    A.RandomBrightnessContrast(),
+    #A.RandomBrightnessContrast(brightness_limit=(-1, 0.1), contrast_limit=(-0.1, 0.1)),
+    A.Blur((3, 5), p=0.1),
     ToTensorV2()
 ])
 
@@ -411,11 +412,14 @@ class BOS_Dataset(Dataset):
 
     Args:
         dirname (str) : path to saved BOS I2I pairs
+        clamped (bool) : values are percentages not desplacements (default=True)
     '''
-    def __init__(self, root:str):
+    def __init__(self, dirname:str, clamped:bool=True):
         # store root directory and get file contents
-        self.root = os.path.abspath(root)
-        self.files = os.listdir(self.root)
+        self.dirname = os.path.abspath(dirname)
+        self.files = os.listdir(self.dirname)
+
+        self.clamped = clamped
 
     def __len__(self) -> int:
         '''
@@ -445,16 +449,10 @@ class BOS_Dataset(Dataset):
             idx = idx.tolist()
 
         # get image
-        path = os.path.join(self.root, self.files[idx])
+        path = os.path.join(self.dirname, self.files[idx])
         image = cv2.imread(path)
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        # get data
-        d = os.path.basename(path)
-        d = os.path.splitext(d)[0]
-        d = d.split('=')[1].strip()
-        d = int(d)
 
         # slice image
         _, w, _ = image.shape
@@ -468,7 +466,18 @@ class BOS_Dataset(Dataset):
         input_image = (input_image - 127.5) / 127.5
 
         # normailize target and convert to displacements
-        target_image = (target_image - 127.5) / 127.5 * d
+        target_image = (target_image - 127.5) / 127.5
+
+        # convert to displacements
+        if not self.clamped:
+            # get displacement size
+            d = os.path.basename(path)
+            d = os.path.splitext(d)[0]
+            d = d.split('=')[1].strip()
+            d = float(d)
+
+            # scale
+            target_image = target_image * d
 
         # augmentations
         transformed = transform(image=input_image, target=target_image)

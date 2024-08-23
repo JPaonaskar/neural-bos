@@ -421,8 +421,8 @@ class Image2Image(nn.Module):
         self.opt_gen.step()
 
         # store history
-        self.history['Discriminator'].append(dis_loss.cpu().detach())
-        self.history['Generator'].append(gen_loss.cpu().detach())
+        self.history['Discriminator'].append(dis_loss.cpu().detach().numpy())
+        self.history['Generator'].append(gen_loss.cpu().detach().numpy())
 
     def learn(self, dataset:Dataset, epochs:int=800, batch_size:int=16, checkpoints:int=10, last_checkpoint:str=None) -> None:
         '''
@@ -515,6 +515,7 @@ class Image2Image(nn.Module):
         # create checkpoint
         checkpoint = {
             'epoch' : epoch,
+            'history' : self.history,
             'gen_state_dict': self.gen.state_dict(),
             'dis_state_dict': self.dis.state_dict(),
             'opt_gen_state_dict': self.opt_gen.state_dict(),
@@ -553,6 +554,9 @@ class Image2Image(nn.Module):
 
         for param_group in self.opt_dis.param_groups:
             param_group["lr"] = float(self.dis.info[INFO_LEARNING_RATE])
+
+        # get history
+        self.history = checkpoint['history']
 
         # return epoch
         return checkpoint['epoch']
