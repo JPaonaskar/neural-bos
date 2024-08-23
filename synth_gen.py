@@ -15,6 +15,7 @@ from torch.utils.data import Dataset
 
 from perlin_noise import PerlinNoise
 
+import time
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
 
@@ -49,6 +50,7 @@ class Map():
     def __init__(self, width:int=256, height:int=256, displacement:list[float]=[5.0, 10.0]):
         self.w = width
         self.h = height
+
         self.d = displacement
 
     def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -159,6 +161,12 @@ class Density_Maps(Map):
     '''
     def __init__(self, *maps:list[tuple[float, Map]]):
         self.maps = maps
+
+        # get displacement
+        self.d = self.maps[0][1].d
+
+        for _, d_map in self.maps[1:]:
+            self.d = [min(self.d[0], d_map.d[0]), max(self.d[1], d_map.d[1])]
 
     def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         '''
@@ -384,9 +392,12 @@ class BOS_Dataset_Generator():
                 # start process
                 futures.append(executor.submit(self._gen))
 
+                # distribute threads
+                time.sleep(0.1)
+
             # get frames
             print('Building Dataset')
-            for i, future in tqdm(enumerate(futures)):
+            for i, future in enumerate(tqdm(futures)):
                 # create image
                 input_image, target_image = future.result()
                 image = self._build_i2i(input_image, target_image)
@@ -474,9 +485,20 @@ if __name__ == '__main__':
     import utils
     from torch.utils.data import DataLoader
 
+    # create density maps
+    map1 = Perlin(width=512, height=512, octaves=[6])
+    map2 = Perlin(width=512, height=512, octaves=[6, 12])
+    map3 = Perlin(width=512, height=512, octaves=[6, 12, 24])
+    map4 = Perlin(width=512, height=512, octaves=[8])
+    map5 = Perlin(width=512, height=512, octaves=[8, 16])
+    map6 = Perlin(width=512, height=512, octaves=[8, 16, 32])
+    map7 = Perlin(width=512, height=512, octaves=[4])
+    map8 = Perlin(width=512, height=512, octaves=[4, 8])
+
+    d_map = Density_Maps((0.125, map1), (0.125, map2), (0.125, map3), (0.125, map4), (0.125, map5), (0.125, map6), (0.125, map7), (0.125, map8))
+
     # create dataset
-    d_map = Perlin(width=512, height=512)
-    data = BOS_Dataset_Generator(d_map, length=200, width=512, height=512)
+    data = BOS_Dataset_Generator(d_map, length=800, width=512, height=512)
     data.build('datasets\\bos\\train')
 
     # show part of the dataset
