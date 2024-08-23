@@ -7,8 +7,11 @@ Referances:
 
 '''
 import os
+from tqdm import tqdm
+
 import torch
 import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 
 CONFIG_ASSIGNMENT = '='
 CONFIG_COMMENT = '#'
@@ -49,6 +52,10 @@ LAYER_FROM = 'from'
 LAYER_NAME = 'name'
 
 TAB = '    '
+
+INFO_LEARNING_RATE = 'learning_rate'
+INFO_BETA1 = 'beta1'
+INFO_L1_LAMBDA = 'l1_lambda'
 
 def parse_config(filename:str) -> list[dict]:
     '''
@@ -109,7 +116,7 @@ def parse_config(filename:str) -> list[dict]:
     # output
     return blocks
 
-def create_model(blocks:list[dict]) -> tuple[dict, list[dict]]:
+def create_model(blocks:list[dict]) -> tuple[dict, list[dict], nn.ModuleList]:
     '''
     Create a the optimizer and list of modules from a list of blocks
 
@@ -120,7 +127,8 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict]]:
         net (dict) : network information
         modules (list[dict]) : list of modules
     '''
-    layers = []
+    layer_info = []
+    layers = nn.ModuleList()
 
     # check for net
     if blocks[0][BLOCK_TYPE] != CONFIG_NET:
@@ -139,7 +147,7 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict]]:
 
         # create convolutional layer
         if block[BLOCK_TYPE] == CONFIG_CONVOLUTIONAL:
-            sequence = []
+            layer = []
 
             # get values
             try:
@@ -194,39 +202,41 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict]]:
 
             # add conv2d / convtranspose2d
             if transpose:
-                sequence.append(nn.ConvTranspose2d(in_feature, feature, size, stride, pad, bias=bias))
+                layer.append(nn.ConvTranspose2d(in_feature, feature, size, stride, pad, bias=bias))
             elif padding_mode:
-                sequence.append(nn.Conv2d(in_feature, feature, size, stride, pad, bias=bias, padding_mode=padding_mode))
+                layer.append(nn.Conv2d(in_feature, feature, size, stride, pad, bias=bias, padding_mode=padding_mode))
             else:
-                sequence.append(nn.Conv2d(in_feature, feature, size, stride, pad, bias=bias))
+                layer.append(nn.Conv2d(in_feature, feature, size, stride, pad, bias=bias))
 
             # add batch norm
             if batch_norm:
-                sequence.append(nn.BatchNorm2d(feature))
+                layer.append(nn.BatchNorm2d(feature))
                 
             # add activation
             if activation == ACTIVATION_RELU:
-                sequence.append(nn.ReLU())
+                layer.append(nn.ReLU())
 
             elif activation == ACTIVATION_LEAKY:
-                sequence.append(nn.LeakyReLU(negitive_slope))
+                layer.append(nn.LeakyReLU(negitive_slope))
 
             elif activation == ACTIVATION_TANH:
-                sequence.append(nn.Tanh())
+                layer.append(nn.Tanh())
 
             elif activation != ACTIVATION_LINEAR:
                 raise ValueError(f'Activation \'{activation}\' is not recongized')
 
             # add dropout
             if dropout:
-                sequence.append(nn.Dropout(dropout))
+                layer.append(nn.Dropout(dropout))
 
-            # store layer
-            layers.append({
-                LAYER : nn.Sequential(*sequence),
+            # store layer information
+            layer_info.append({
                 LAYER_FROM : shortcut,
                 LAYER_NAME : block[BLOCK_TYPE]
             })
+
+            # add layer
+            layers.append(nn.Sequential(*layer))
 
         # create convolutional layer
         else:
@@ -236,7 +246,7 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict]]:
         features.append(feature)
 
     # output
-    return net, layers
+    return net, layer_info, layers
 
 class Model(nn.Module):
     '''
@@ -250,7 +260,8 @@ class Model(nn.Module):
 
         # layers
         self.info = None
-        self.layers = []
+        self.layer_info = None
+        self.layers = None
 
         # configure model
         if filename:
@@ -270,68 +281,197 @@ class Model(nn.Module):
         blocks = parse_config(filename)
 
         # create model
-        self.info, self.layers = create_model(blocks)
-
-    def __str__(self) -> str:
-        '''
-        Convert to string
-
-        Args:
-            None
-
-        Returns:
-            string (str)
-        '''
-        string = ''
-
-        # add layers
-        for i, layer in enumerate(self.layers):
-            # add layer
-            string += f'({i}) {layer[LAYER_NAME]}\n'
-
-            # add concat
-            if layer[LAYER_FROM]:
-                string += f'{TAB}<- ({layer[LAYER_FROM]})\n'
-
-            # add sequential
-            string += TAB + str(layer[LAYER]).replace('\n', '\n' + TAB) + '\n'
-
-        # output
-        return string
+        self.info, self.layer_info, self.layers = create_model(blocks)
     
-    def forward(self, x:torch.Tensor) -> torch.Tensor:
+    def forward(self, *inputs:torch.Tensor) -> torch.Tensor:
         '''
         Feed through network
 
         Args:
-            x (torch.Tensor) : input
+            *inputs (torch.Tensor) : function inputs
 
         Returns:
             out (torch.Tensor) : network output
         '''
+        # concat inputs
+        x = torch.cat(inputs, dim=1)
+
         # store activations for skips
         activations = [x]
 
         # itterate through layers
-        for i, layer in enumerate(self.layers):
+        for info, layer in zip(self.layer_info, self.layers):
             # skip
-            if layer[LAYER_FROM]:
-                x = torch.cat([x, activations[layer[LAYER_FROM]]], dim=1)
+            if info[LAYER_FROM]:
+                x = torch.cat([x, activations[info[LAYER_FROM]]], dim=1)
 
             # feed
-            x = layer[LAYER](x)
+            x = layer(x)
 
             # store
             activations.append(x)
 
         # output
         return activations[-1]
+    
+    def predict(self, *inputs:torch.Tensor) -> torch.Tensor:
+        '''
+        Predict from inputs
+
+        Args:
+            *inputs (torch.Tensor) : function inputs
+
+        Returns:
+            pred (torch.Tensor) : network prediction
+        '''
+        # no gradients
+        with torch.no_grad():
+            # predict
+            pred = self.forward(*inputs)
+
+        # output
+        return pred
+    
+class Image2Image(nn.Module):
+    '''
+    Image-to-Image class
+
+    Args:
+        device (torch.device) : device
+        generator_config (str) : generator config file (default='configs\\generator.cfg')
+        discriminator_config (str) : discriminator config file (default='configs\\discriminator.cfg')
+    
+    '''
+    def __init__(self, device:torch.device, generator_config:str='configs\\generator.cfg', discriminator_config:str='configs\\discriminator.cfg'):
+        super().__init__()
+        
+        # store device
+        self.device = device
+        
+        # create models
+        self.gen = Model(generator_config).to(device)
+        self.dis = Model(discriminator_config).to(device)
+
+        # setup optimizers
+        self.opt_gen = torch.optim.Adam(
+            self.gen.parameters(),
+            lr=float(self.gen.info[INFO_LEARNING_RATE]),
+            betas=(float(self.gen.info[INFO_BETA1]), 0.999)
+        )
+        self.opt_dis = torch.optim.Adam(
+            self.dis.parameters(),
+            lr=float(self.dis.info[INFO_LEARNING_RATE]),
+            betas=(float(self.dis.info[INFO_BETA1]), 0.999)
+        )
+
+        # setup loss
+        self.BCE_Loss = nn.BCEWithLogitsLoss()
+        self.L1_Loss = nn.L1Loss()
+
+        # loss history
+        self.history = {
+            'Discriminator' : [],
+            'Generator' : []
+        }
+
+    def step(self, x:torch.Tensor, y:torch.Tensor) -> None:
+        '''
+        Training step
+
+        Args:
+            x (torch.Tensor) : input images batch
+            y (torch.Tensor) : target images batch
+
+        Returns:
+            None
+        '''
+        # convert to same device space
+        x = x.to(self.device)
+        y = y.to(self.device)
+
+        # generate image
+        y_pred = self.gen(x)
+
+        # real image loss
+        real_pred = self.dis(x, y)
+        real_loss = self.BCE_Loss(real_pred, torch.ones_like(real_pred))
+        
+        fake_pred = self.dis(x, y_pred.detach())
+        fake_loss = self.BCE_Loss(fake_pred, torch.zeros_like(real_pred))
+
+        # average loss
+        dis_loss = 0.5 * (real_loss + fake_loss)
+
+        # train discriminator
+        self.dis.zero_grad()
+        dis_loss.backward()
+        self.opt_dis.step()
+            
+        # compute loss
+        fake_pred = self.dis(x, y_pred)
+        gen_loss = self.BCE_Loss(fake_pred, torch.ones_like(fake_pred))
+
+        gen_loss += self.L1_Loss(y_pred, y) * 100 #self.gen.info[INFO_L1_LAMBDA]
+
+        # train generator
+        self.opt_gen.zero_grad()
+        gen_loss.backward()
+        self.opt_gen.step()
+
+        # store history
+        self.history['Discriminator'].append(dis_loss.cpu().detach())
+        self.history['Generator'].append(gen_loss.cpu().detach())
+
+    def train(self, dataset:Dataset, epochs:int=800, batch_size:int=16) -> None:
+        '''
+        Train Image-to-Image model
+
+        Args:
+            dataset (Dataset) : torch dataset to train on
+            epochs (int) : number of epochs (default=800)
+            batch_size (int) : size of batch of data (default=16)
+
+        Returns:
+            None
+        '''
+        # create dataloader
+        loader = DataLoader(dataset, batch_size, shuffle=True)
+
+        # loop through epochs
+        for epoch in tqdm(range(epochs)):
+            # loop through batches
+            for x, y in tqdm(loader, desc=f'Epoch {epoch+1}', leave=False):
+                # train
+                self.step(x, y)
+
+    def predict(self, dataset:Dataset, batch_size:int=16) -> torch.Tensor:
+        '''
+        Predict a batch
+
+        Args:
+            dataset (Dataset) : torch dataset to train on
+            batch_size (int) : size of batch of data (default=16)
+
+        Returns:
+            pred (torch.Tensor) : prediction
+        '''
+        # create dataloader
+        loader = DataLoader(dataset, batch_size, shuffle=True)
+
+        # pull
+        x, y = next(iter(loader))
+
+        # predict
+        pred = self.gen.predict(x.to(self.device))
+
+        # return prediction
+        return x.cpu().detach(), y, pred.cpu().detach()
 
 if __name__ == '__main__':
     gen = Model('configs\\generator.cfg')
-    #print(gen)
+    print(gen)
     print(gen(torch.zeros(1, 3, 256, 256)).shape) # torch.Size([1, 3, 256, 256])
 
     dis = Model('configs\\discriminator.cfg')
-    #print(dis)
-    print(dis(torch.zeros(1, 6, 256, 256)).shape) # torch.Size([1, 1, 59, 59])
+    print(dis)
+    print(dis(torch.zeros(1, 3, 256, 256), torch.zeros(1, 3, 256, 256)).shape) # torch.Size([1, 1, 59, 59])
