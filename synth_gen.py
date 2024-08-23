@@ -30,7 +30,7 @@ transform = A.Compose([
 
 transform_input = A.Compose([
     #A.RandomBrightnessContrast(brightness_limit=(-1, 0.1), contrast_limit=(-0.1, 0.1)),
-    A.Blur((3, 5), p=0.1),
+    #A.Blur((3, 5), p=0.1),
     ToTensorV2()
 ])
 
@@ -163,11 +163,18 @@ class Density_Maps(Map):
     def __init__(self, *maps:list[tuple[float, Map]]):
         self.maps = maps
 
-        # get displacement
+        # get initial displacement and probability
         self.d = self.maps[0][1].d
+        prob = self.maps[0][0]
 
-        for _, d_map in self.maps[1:]:
+        # update displacement and check probability
+        for p, d_map in self.maps[1:]:
             self.d = [min(self.d[0], d_map.d[0]), max(self.d[1], d_map.d[1])]
+            prob += p
+
+        # invalid probability
+        if prob != 1:
+            raise ValueError(f'Expected proabilities to sum to 1.0 but got {prob}')
 
     def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         '''
@@ -394,7 +401,8 @@ class BOS_Dataset_Generator():
                 futures.append(executor.submit(self._gen))
 
                 # distribute threads
-                time.sleep(0.1)
+                if i < workers:
+                    time.sleep(0.5)
 
             # get frames
             print('Building Dataset')
@@ -417,43 +425,59 @@ class BOS_Dataset(Dataset):
     def __init__(self, dirname:str, clamped:bool=True):
         # store root directory and get file contents
         self.dirname = os.path.abspath(dirname)
-        self.files = os.listdir(self.dirname)
 
         self.clamped = clamped
 
-    def __len__(self) -> int:
+        # image values
+        self.input_images = []
+        self.target_images = []
+
+        # load images
+        print('Loading Images')
+        for file in tqdm(os.listdir(dirname)):
+            # get image
+            path = os.path.join(dirname, file)
+            image = cv2.imread(path)
+
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+            # cut images
+            input_image, target_image = self._cut(image)
+
+            # convert to displacements
+            if not self.clamped:
+                # get displacement size
+                d = os.path.basename(path)
+                d = os.path.splitext(d)[0]
+                d = d.split('=')[1].strip()
+                d = float(d)
+
+                # convert
+                target_image = target_image * d
+
+            # augmentations
+            transformed = transform(image=input_image, target=target_image)
+            input_image = transformed['image']
+            target_image = transformed['target']
+
+            input_image = transform_input(image=input_image)['image']
+            target_image = transform_target(image=target_image)['image']
+
+            # add images
+            self.input_images.append(input_image)
+            self.target_images.append(target_image)
+
+    def _cut(self, image:np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         '''
-        Length of dataset
+        Cut dataset image into a pair
 
         Args:
-            None
+            image (np.ndarray) : dataset image
 
         Returns:
-            len (int) : length
+            input_image (np.ndarray) : input image
+            target_image (np.ndarray) : target image
         '''
-        return len(self.files)
-
-    def __getitem__(self, idx:Union[int, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        '''
-        Get dataset item at index
-
-        Args:
-            idx (list, torch.Tensor) : indexes
-
-        Returns:
-            input_image (torch.Tensor) : Input image
-            target_image (torch.Tensor) : Target image
-        '''
-        # convert to index
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-
-        # get image
-        path = os.path.join(self.dirname, self.files[idx])
-        image = cv2.imread(path)
-
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         # slice image
         _, w, _ = image.shape
 
@@ -465,27 +489,42 @@ class BOS_Dataset(Dataset):
         # normalize input image
         input_image = (input_image - 127.5) / 127.5
 
-        # normailize target and convert to displacements
+        # normailize target
         target_image = (target_image - 127.5) / 127.5
 
-        # convert to displacements
-        if not self.clamped:
-            # get displacement size
-            d = os.path.basename(path)
-            d = os.path.splitext(d)[0]
-            d = d.split('=')[1].strip()
-            d = float(d)
+        # output
+        return input_image, target_image
 
-            # scale
-            target_image = target_image * d
+    def __len__(self) -> int:
+        '''
+        Length of dataset
 
-        # augmentations
-        transformed = transform(image=input_image, target=target_image)
-        input_image = transformed['image']
-        target_image = transformed['target']
+        Args:
+            None
 
-        input_image = transform_input(image=input_image)['image']
-        target_image = transform_target(image=target_image)['image']
+        Returns:
+            len (int) : length
+        '''
+        return len(self.input_images)
+
+    def __getitem__(self, ind:Union[int, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        '''
+        Get dataset item at index
+
+        Args:
+            ind (list, torch.Tensor) : indexes
+
+        Returns:
+            input_image (torch.Tensor) : Input image
+            target_image (torch.Tensor) : Target image
+        '''
+        # convert to index
+        if torch.is_tensor(ind):
+            ind = ind.tolist()
+
+        # get images
+        input_image = self.input_images[ind]
+        target_image = self.target_images[ind]
 
         # output
         return input_image, target_image
@@ -495,13 +534,14 @@ if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
     # create density maps
-    map1 = Perlin(width=512, height=512, octaves=[4])
-    map2 = Perlin(width=512, height=512, octaves=[6])
-    map3 = Perlin(width=512, height=512, octaves=[8])
-    map4 = Perlin(width=512, height=512, octaves=[4, 8])
-    map5 = Perlin(width=512, height=512, octaves=[6, 12])
+    map1 = Perlin(width=512, height=512, octaves=[2])
+    map2 = Perlin(width=512, height=512, octaves=[3])
+    map3 = Perlin(width=512, height=512, octaves=[4])
+    map4 = Perlin(width=512, height=512, octaves=[2, 4])
+    map5 = Perlin(width=512, height=512, octaves=[6])
+    map6 = Perlin(width=512, height=512, octaves=[3, 6])
 
-    d_map = Density_Maps((0.25, map1), (0.25, map2), (0.2, map3), (0.2, map4), (0.1, map5))
+    d_map = Density_Maps((0.3, map1), (0.2, map2), (0.1, map3), (0.15, map4), (0.1, map5), (0.15, map6))
 
     # create dataset
     data = BOS_Dataset_Generator(d_map, length=800, width=512, height=512)

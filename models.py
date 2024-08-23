@@ -448,8 +448,10 @@ class Image2Image(nn.Module):
         epoch0 = 0
         if last_checkpoint:
             epoch0 = self.load_checkpoint(last_checkpoint)
+            print(f'Loaded checkpoint {os.path.basename(last_checkpoint)}')
 
         # loop through epochs
+        print('Training')
         for epoch in tqdm(range(epoch0, epochs)):
             # loop through batches
             for x, y in tqdm(loader, desc=f'Epoch {epoch+1}', leave=False):
