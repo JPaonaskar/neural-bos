@@ -19,7 +19,7 @@ val = dataset.I2I_Dataset('datasets\\maps\\val')
 
 i2i = models.Image2Image(torch.device('cuda'))
 
-i2i.learn(train, epochs=30, checkpoints=10, last_checkpoint='checkpoints\epoch_20.pt')
+i2i.learn(train, epochs=20, checkpoints=5)#, last_checkpoint='checkpoints\epoch_20.pt')
 utils.plot_loss(i2i.history)
 
 x, y, pred = i2i.predict(val, batch_size=25)

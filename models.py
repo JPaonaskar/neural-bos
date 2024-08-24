@@ -399,7 +399,7 @@ class Image2Image(nn.Module):
         real_loss = self.BCE_Loss(real_pred, torch.ones_like(real_pred))
         
         fake_pred = self.dis(x, y_pred.detach())
-        fake_loss = self.BCE_Loss(fake_pred, torch.zeros_like(real_pred))
+        fake_loss = self.BCE_Loss(fake_pred, torch.zeros_like(fake_pred))
 
         # average loss
         dis_loss = 0.5 * (real_loss + fake_loss)
@@ -411,9 +411,9 @@ class Image2Image(nn.Module):
             
         # compute loss
         fake_pred = self.dis(x, y_pred)
-        gen_loss = self.BCE_Loss(fake_pred, torch.ones_like(fake_pred))
+        gen_fake_loss = self.BCE_Loss(fake_pred, torch.ones_like(fake_pred))
 
-        gen_loss += self.L1_Loss(y_pred, y) * 100 #self.gen.info[INFO_L1_LAMBDA]
+        gen_loss = gen_fake_loss + self.L1_Loss(y_pred, y) * float(self.gen.info[INFO_L1_LAMBDA])
 
         # train generator
         self.opt_gen.zero_grad()
