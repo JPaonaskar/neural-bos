@@ -77,6 +77,7 @@ def clean_string(module:str) -> str:
 
     return cleaned
 
+# check strings
 print(
     'Dis Modules:',
     clean_string(str(i2i_hard.net_dis)) == clean_string(str(i2i_config.dis))
@@ -87,6 +88,7 @@ print(
     clean_string(str(i2i_hard.net_gen)) == clean_string(str(i2i_config.gen))
 )
 
+# check line by line
 hard_gen_lines = clean_string(str(i2i_hard.net_gen)).splitlines()
 config_gen_lines = clean_string(str(i2i_config.gen)).splitlines()
 i = 0
