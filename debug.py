@@ -100,3 +100,10 @@ while True:
         print('False:', hard_gen_lines[i], '!=', config_gen_lines[i])
 
     i += 1
+
+print(i2i_config.gen)
+# check skips
+for i, info in enumerate(i2i_config.gen.layer_info):
+    skip = info[models.LAYER_FROM]
+    if skip:
+        print(f'Skip: ({i}) <- {i + skip}')
