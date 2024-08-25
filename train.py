@@ -6,20 +6,19 @@ Train Image-to-Image GAN on dataset
 Referances:
 
 '''
-import torch
-
 import utils
 import pix2pix
-import dataset
+#import dataset
 import synth_gen
 
-#train = synth_gen.BOS_Dataset('datasets\\perlin\\train', clamped=True)
-train = dataset.I2I_Dataset('datasets\\maps\\train')
-val = dataset.I2I_Dataset('datasets\\maps\\val')
+train = synth_gen.BOS_Dataset('datasets\\bos\\train', clamped=True)
+val = synth_gen.BOS_Dataset('datasets\\bos\\val', clamped=True)
+#train = dataset.I2I_Dataset('datasets\\maps\\train')
+#val = dataset.I2I_Dataset('datasets\\maps\\val')
 
 i2i = pix2pix.Pix2PixModel()
 
-i2i.learn(train, epochs=20, checkpoints=5)#, last_checkpoint='checkpoints\epoch_20.pt')
+i2i.learn(train, epochs=200, checkpoints=10)#, last_checkpoint='checkpoints\epoch_20.pt')
 utils.plot_loss(i2i.history)
 
 x, y, pred = i2i.predict(val, batch_size=25)
