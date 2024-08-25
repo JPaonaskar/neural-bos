@@ -59,6 +59,9 @@ INFO_LEARNING_RATE = 'learning_rate'
 INFO_BETA1 = 'beta1'
 INFO_L1_LAMBDA = 'l1_lambda'
 
+NET_INIT_WEIGHT_MEAN = 'init_weight_mean'
+NET_INIT_WEIGHT_STDEV = 'init_weight_stdev'
+
 def parse_config(filename:str) -> list[dict]:
     '''
     Read configuration file and return as a list of blocks
@@ -131,16 +134,16 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict], nn.ModuleList]:
     '''
     layer_info = []
     layers = nn.ModuleList()
-
-    # check for net
-    if blocks[0][BLOCK_TYPE] != CONFIG_NET:
-        raise TypeError(f'Expected [{CONFIG_NET}] as the first block but got [{blocks[0][BLOCK_TYPE]}]')
-
+    
     # store net information
     net = blocks[0]
 
-    # read config
-    features = [int(blocks[0][BLOCK_NET_CHANNELS])]
+    # check for net
+    if net[BLOCK_TYPE] != CONFIG_NET:
+        raise TypeError(f'Expected [{CONFIG_NET}] as the first block but got [{net[BLOCK_TYPE]}]')
+
+    # get initial channels
+    features = [int(net[BLOCK_NET_CHANNELS])]
 
     # itterate
     for block in blocks[1:]:
@@ -246,6 +249,25 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict], nn.ModuleList]:
 
         # store feature size
         features.append(feature)
+
+    # check for weight initialization
+    try:
+        mean = float(net[NET_INIT_WEIGHT_MEAN])
+        stdev = float(net[NET_INIT_WEIGHT_STDEV])
+
+        # weight init function
+        def weight_init(module:nn.Module):
+            classname = module.__class__.__name__
+            if classname.find('Conv') != -1:
+                nn.init.normal_(module.weight.data, mean, stdev)
+            elif classname.find('BatchNorm') != -1:
+                nn.init.normal_(module.weight.data, 1.0, 0.02)
+                nn.init.constant_(module.bias.data, 0)
+
+        # apply init weights
+        layers.apply(weight_init)
+    except KeyError:
+        pass
 
     # output
     return net, layer_info, layers
