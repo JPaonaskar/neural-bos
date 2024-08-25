@@ -29,8 +29,8 @@ transform = A.Compose([
 ], additional_targets={'target' : 'image'})
 
 transform_input = A.Compose([
-    #A.RandomBrightnessContrast(brightness_limit=(-1, 0.1), contrast_limit=(-0.1, 0.1)),
-    #A.Blur((3, 5), p=0.1),
+    A.RandomBrightnessContrast(brightness_limit=(-0.1, 0.1), contrast_limit=(-0.1, 0.1)),
+    A.Blur((3, 5), p=0.1),
     ToTensorV2()
 ])
 
