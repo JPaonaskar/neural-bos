@@ -87,10 +87,11 @@ class VideoGUI():
 
     Args:
         video (str) : path to video (default=None)
+        scale (float) : visual output scale (default=1.0)
         device (torch.device) : model device (default=torch.device('cuda'))
 
     '''
-    def __init__(self, video:str=None, device:torch.device=torch.device('cuda')):
+    def __init__(self, video:str=None, scale:float=1.0, device:torch.device=torch.device('cuda')):
         # create model
         self.model = pix2pix.Pix2PixModel(device)
 
@@ -98,6 +99,9 @@ class VideoGUI():
         self.w = None
         self.h = None
         self.frames = []
+
+        # scaling
+        self.scale = scale
 
         # store results
         self.results = []
@@ -231,17 +235,22 @@ class VideoGUI():
         Return:
             None
         '''
+        # convert to image size
+        ix = round(x / self.scale)
+        iy = round(y / self.scale)
+        
+        # events
         if event == cv2.EVENT_LBUTTONDOWN:
             self.moving = True
-            self._assign_window(x, y)
+            self._assign_window(ix, iy)
     
         elif event == cv2.EVENT_MOUSEMOVE:
             if self.moving == True:
-                self._assign_window(x, y)
+                self._assign_window(ix, iy)
     
         elif event == cv2.EVENT_LBUTTONUP:
             self.moving = False
-            self._assign_window(x, y)
+            self._assign_window(ix, iy)
 
     def _get_annotated_frame(self, ind:int, font:int=cv2.FONT_HERSHEY_SIMPLEX, font_scale:float=0.5, font_color:tuple[int, int, int]=(255, 255, 255), font_thickness:int=1, font_pad:int=8) -> np.ndarray:
         '''
@@ -276,6 +285,9 @@ class VideoGUI():
         p2 = (self.window[2], self.window[3])
         cv2.rectangle(frame, p1, p2, (0, 0, 255), 2)
 
+        # scale
+        frame = cv2.resize(frame, (0, 0), fx=self.scale, fy=self.scale)
+
         # return frame
         return frame
     
@@ -291,7 +303,15 @@ class VideoGUI():
             frame (np.ndarray) : predicted frame
         '''
         if len(self.results) == len(self.frames):
-            return True, self.results[ind]
+            frame = self.results[ind]
+
+            # scale
+            frame = cv2.resize(frame, (0, 0), fx=self.scale, fy=self.scale)
+
+            # output
+            return True, frame
+
+        # no results
         return False, None
     
     def _key_step(self, k:int, ind:int) -> int:
@@ -382,5 +402,5 @@ class VideoGUI():
         cv2.destroyAllWindows()
 
 if __name__ == '__main__':
-    gui = VideoGUI('C:\\Users\\jpthe\\Downloads\\1024x2.avi')
+    gui = VideoGUI('D:\\BOS\\Sample Data\\P8100004.MOV', scale=0.5)
     gui.show()
