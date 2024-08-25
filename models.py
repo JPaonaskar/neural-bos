@@ -261,7 +261,7 @@ def create_model(blocks:list[dict]) -> tuple[dict, list[dict], nn.ModuleList]:
             if classname.find('Conv') != -1:
                 nn.init.normal_(module.weight.data, mean, stdev)
             elif classname.find('BatchNorm') != -1:
-                nn.init.normal_(module.weight.data, 1.0, 0.02)
+                nn.init.normal_(module.weight.data, 1.0, stdev)
                 nn.init.constant_(module.bias.data, 0)
 
         # apply init weights

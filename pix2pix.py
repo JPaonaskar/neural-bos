@@ -17,6 +17,25 @@ import utils
 
 LAMBDA = 100
 
+# weight init function
+def weight_init(module:nn.Module) -> None:
+    '''
+    Initialize weights in a module with mean = 0.0 and stdev = 0.02
+
+    Args:
+        module (nn.Module) : module to change weight for
+    '''
+    classname = module.__class__.__name__
+
+    # check convolutional layer
+    if 'Conv' in classname:
+        nn.init.normal_(module.weight.data, 0.0, 0.02)
+
+    # check batchnorm
+    elif 'BatchNorm' in classname:
+        nn.init.normal_(module.weight.data, 1.0, 0.02)
+        nn.init.constant_(module.bias.data, 0)
+
 class DownSample(nn.Module):
     '''
     Down sampling block
@@ -278,6 +297,10 @@ class Pix2PixModel(nn.Module):
         # create models
         self.gen = Generator(in_channels, out_channels).to(device)
         self.dis = Discriminator(in_channels, out_channels).to(device)
+
+        # assign weight distributions
+        self.gen.apply(weight_init)
+        self.dis.apply(weight_init)
 
         # define optimizers
         self.opt_gen = torch.optim.Adam(self.gen.parameters(), lr=learning_rate, betas=(beta_1, 0.999))
