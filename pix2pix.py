@@ -1,44 +1,46 @@
 '''
 PIX2PIX
 
-pix2pix Image-to-Image Translation GAN
+hardcoded pix2pix implementation following the paper and associated resources
 
 Referances:
-    https://medium.com/@Skpd/pix2pix-gan-for-generating-map-given-satellite-images-using-pytorch-6e50c318673a
-    https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html
+    https://arxiv.org/pdf/1611.07004
 '''
+import os
+from tqdm import tqdm
+
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-from tqdm import tqdm
-
 import utils
-    
-class Down_Block(nn.Module):
+
+LAMBDA = 100
+
+class DownSample(nn.Module):
     '''
-    Down sampling block for U-Net
+    Down sampling block
 
     Args:
         in_channels (int) : input channels
         out_channels (int) : output channels
-        negitive_slope (float) : activation function (default=0.0)
-        dropout (float) : dropout layer value (default=0.0)
+        size (int) : kernal size (default=4)
+        batchnorm (bool) : apply batchnorm (default=True)
     '''
-    def __init__(self, in_channels:int, out_channels:int, negitive_slope:float=0.0, dropout:float=0.0):
+    def __init__(self, in_channels:int, out_channels:int, size:int=4, batchnorm:bool=True):
         super().__init__()
 
         # create sequence
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 4, 2, 1, bias=False, padding_mode='reflect'),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(negitive_slope)
+            nn.Conv2d(in_channels, out_channels, size, 2, 1, bias=False, padding_mode='reflect')
         )
 
-        # add dropout
-        self.dropout = None
-        if dropout > 0:
-            self.dropout = nn.Dropout(dropout)
+        # add batch norm
+        if batchnorm:
+            self.conv.add_module('BatchNorm2d', nn.BatchNorm2d(out_channels))
+
+        # activation function
+        self.conv.add_module('LeakyReLU', nn.LeakyReLU(0.2))
     
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         '''
@@ -48,42 +50,33 @@ class Down_Block(nn.Module):
             x (torch.Tensor) : input
 
         Returns:
-            x (torch.Tensor) : output
+            (torch.Tensor) : output
         '''
-        # apply convolution
-        x = self.conv(x)
+        return self.conv(x)
 
-        # apply dropout
-        if self.dropout:
-            x = self.dropout(x)
-
-        # output
-        return x
-
-class Up_Block(nn.Module):
+class UpSample(nn.Module):
     '''
-    Down sampling block for U-Net
+    Up sampling block
 
     Args:
         in_channels (int) : input channels
         out_channels (int) : output channels
-        negitive_slope (float) : activation function (default=0.0)
-        dropout (float) : dropout layer value (default=0.0)
+        size (int) : kernal size (default=4)
+        dropout (bool) : add dropout layer (default=False)
     '''
-    def __init__(self, in_channels:int, out_channels:int, negitive_slope:float=0.0, dropout:float=0.0):
+    def __init__(self, in_channels:int, out_channels:int, size:int=4, dropout:bool=False):
         super().__init__()
 
         # create sequence
         self.conv = nn.Sequential(
-            nn.ConvTranspose2d(in_channels, out_channels, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(in_channels, out_channels, size, 2, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(negitive_slope)
+            nn.ReLU()
         )
 
         # add dropout
-        self.dropout = None
-        if dropout > 0:
-            self.dropout = nn.Dropout(dropout)
+        if dropout:
+            self.conv.add_module('Dropout', nn.Dropout(0.5))
     
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         '''
@@ -93,240 +86,258 @@ class Up_Block(nn.Module):
             x (torch.Tensor) : input
 
         Returns:
-            x (torch.Tensor) : output
+            (torch.Tensor) : output
         '''
-        # apply convolution
-        x = self.conv(x)
-
-        # apply dropout
-        if self.dropout:
-            x = self.dropout(x)
-
-        # output
-        return x
+        return self.conv(x)
 
 class Generator(nn.Module):
     '''
-    Image-to-Image generator
+    Pix2pix gererator module
 
     Args:
-        in_channels (int) : input channels
-        features (int) : 
+        in_channels (int) : input image channels (default=3)
+        out_channels (int) : output image channels (default=3)
     '''
-    def __init__(self, in_channels:int=3, features:int=64):
+    def __init__(self, in_channels:int=3, out_channels:int=3):
         super().__init__()
-        self.down = nn.Sequential(
-            nn.Conv2d(in_channels, features, 4, 2, 1, padding_mode='reflect'),
-            nn.LeakyReLU(0.2)
-        ) # 128 x 128
 
-        # encoder
-        self.down1 = Down_Block(features, features*2, negitive_slope=0.2)
-        self.down2 = Down_Block(features*2, features*4, negitive_slope=0.2)
-        self.down3 = Down_Block(features*4, features*8, negitive_slope=0.2)
-        self.down4 = Down_Block(features*8, features*8, negitive_slope=0.2)
-        self.down5 = Down_Block(features*8, features*8, negitive_slope=0.2)
-        self.down6 = Down_Block(features*8, features*8, negitive_slope=0.2)
+        # architecture
+        self.encoder = nn.ModuleList([
+            DownSample(in_channels, 64, batchnorm=False),
+            DownSample(64, 128),
+            DownSample(128, 256),
+            DownSample(256, 512),
+            DownSample(512, 512),
+            DownSample(512, 512),
+            DownSample(512, 512),
+        ])
 
-        # bottleneck
         self.bottleneck = nn.Sequential(
-            nn.Conv2d(features*8, features*8, 4, 2, 1, padding_mode='reflect')
+            nn.Conv2d(512, 512, 4, 2, 1, padding_mode='reflect'),
+            nn.LeakyReLU(0.2)
+        )
+        
+        self.decoder = nn.ModuleList([
+            UpSample(512, 512, dropout=True),
+            UpSample(1024, 512, dropout=True),
+            UpSample(1024, 512, dropout=True),
+            UpSample(1024, 512),
+            UpSample(1024, 256),
+            UpSample(512, 128),
+            UpSample(256, 64),
+        ])
+
+        self.output = nn.Sequential(
+            nn.ConvTranspose2d(128, out_channels, 4, 2, 1),
+            nn.Tanh(),
         )
 
-        # decoder
-        self.up1 = Up_Block(features*8, features*8, dropout=0.5)
-        self.up2 = Up_Block(features*16, features*8, dropout=0.5)
-        self.up3 = Up_Block(features*16, features*8, dropout=0.5)
-        self.up4 = Up_Block(features*16, features*8)
-        self.up5 = Up_Block(features*16, features*4)
-        self.up6 = Up_Block(features*8, features*2)
-        self.up7 = Up_Block(features*4, features)
+        # loss functions
+        self.BCE_loss = nn.BCEWithLogitsLoss()
+        self.L1_loss = nn.L1Loss()
 
-        self.up = nn.Sequential(
-            nn.ConvTranspose2d(features*2, in_channels, kernel_size=4, stride=2, padding=1),
-            nn.Tanh()
-        )
-    
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         '''
-        Feed forward
+        Pass forward through network
 
         Args:
-            x (torch.Tensor) : input
+            x (torch.Tensor) : input image
 
         Returns:
-            out (torch.Tensor) : output
+            (torch.Tensor) : output image
         '''
         # encode
-        d1 = self.down(x)
-        d2 = self.down1(d1)
-        d3 = self.down2(d2)
-        d4 = self.down3(d3)
-        d5 = self.down4(d4)
-        d6 = self.down5(d5)
-        d7 = self.down6(d6)
-        
+        skips = []
+        for module in self.encoder:
+            x = module(x)
+            skips.append(x)
+
         # bottleneck
-        bottleneck = self.bottleneck(d7)
-        
-        # skip and decode
-        up1 = self.up1(bottleneck)
-        up2 = self.up2(torch.cat([up1, d7], 1))
-        up3 = self.up3(torch.cat([up2, d6], 1))
-        up4 = self.up4(torch.cat([up3, d5], 1))
-        up5 = self.up5(torch.cat([up4, d4], 1))
-        up6 = self.up6(torch.cat([up5, d3], 1))
-        up7 = self.up7(torch.cat([up6, d2], 1))
+        x = self.bottleneck(x)
 
-        out = self.up(torch.cat([up7, d1],1))
-        
+        # orgainize skips
+        skips = reversed(skips)
+
+        # decode
+        for module, skip in zip(self.decoder, skips):
+            x = module(x)
+            x = torch.cat([x, skip], dim=1)
+
         # output
-        return out
+        return self.output(x)
     
-class Discriminator(nn.Module):
-    def __init__(self, in_channels:int=3, features:list[int]=[64, 128, 256, 512]):
-        super().__init__()
-        # add initial layer
-        layers = [
-            nn.Sequential(
-                nn.Conv2d(in_channels*2, features[0], kernel_size=4, stride=2, padding=1, padding_mode='reflect'),
-                nn.LeakyReLU(0.2)
-            )
-        ]
-
-        in_channels = features[0]
-        for feature in features[1:]:
-            # determine stride
-            if feature == features[-1]:
-                stride = 2
-            else:
-                stride=1
-
-            # add CNN block
-            layers.append(
-                nn.Sequential(
-                    nn.Conv2d(in_channels, feature, 4, stride, bias=False, padding_mode='reflect'),
-                    nn.BatchNorm2d(feature),
-                    nn.LeakyReLU(0.2)
-                )
-            )
-
-            # store in channels
-            in_channels = feature
-
-        # add final layer
-        layers.append(
-            nn.Conv2d(in_channels, 1, kernel_size=4, stride=1, padding=1, bias=False, padding_mode='reflect')
-        )
-
-        # join
-        self.model = nn.Sequential(*layers)
-
-    
-    def forward(self, x:torch.Tensor, y:torch.Tensor) -> torch.Tensor:
+    def predict(self, x:torch.Tensor) -> torch.Tensor:
         '''
-        Feed forward
+        Predict target image
 
         Args:
-            x (torch.Tensor) : Real input image
-            y (torch.Tensor) : Real/Fake output image
+            x (torch.Tensor) : input image
 
         Returns:
-            out (torch.Tensor) : output
+            pred (torch.Tensor) : generated prediction
         '''
-        # concatinate and feed
-        out = torch.cat([x, y], dim=1)
-        out = self.model(out)
+        # no gradients
+        with torch.no_grad():
+            # predict
+            pred = self.forward(x)
 
         # output
-        return out
+        return pred
     
-class Image2Image():
-    '''
-    Image-to-Image class
-
-    Args:
-        learning_rate (float) : optimizer learning rate (default=2e-4)
-        beta1 (float) : optimizer beta1 (default=0.5)
-    
-    '''
-    def __init__(self, learning_rate:float=2e-4, beta1:float=0.5):
-        # create models
-        self.net_dis = Discriminator(in_channels=3).cuda()
-        self.net_gen = Generator(in_channels=3).cuda()
-
-        # store hyperparameters
-        self.learning_rate = learning_rate
-        self.beta1 = beta1
-
-        # setup optimizer
-        self.opt_dis = torch.optim.Adam(self.net_dis.parameters(), lr=learning_rate, betas=(beta1, 0.999))
-        self.opt_gen = torch.optim.Adam(self.net_gen.parameters(), lr=learning_rate, betas=(beta1, 0.999))
-
-        # setup loss
-        self.BCE_Loss = nn.BCEWithLogitsLoss()
-        self.L1_Loss = nn.L1Loss()
-
-        # lost history
-        self.history = {
-            'dis' : [],
-            'gen' : []
-        }
-
-    def epoch(self, loader:DataLoader, l1_lambda:float=100.0) -> None:
+    def loss(self, dis_generated_output:torch.Tensor, gen_output:torch.Tensor, target:torch.Tensor) -> torch.Tensor:
         '''
-        Train for an epoch
+        Compute the gerator loss
 
         Args:
-            loader (Dataloader) : dataloader with data
-            l1_lambda (float) : L1 loss scale (default=100.0)
+            disc_generated_output (torch.Tensor) : discriminator output for gernated image
+            gen_out (torch.Tensor) : generator output
+            target (torch.Tensor) : target image
+
+        Returns:
+            loss (torch.Tensor) : generator loss
+        '''
+        gan_loss = self.BCE_loss(dis_generated_output, torch.ones_like(dis_generated_output))
+        loss = gan_loss + (LAMBDA * self.L1_loss(gen_output, target))
+
+        return loss
+    
+class Discriminator(nn.Module):
+    '''
+    Pix2pix discriminator module
+
+    Args:
+        in_channels (int) : generator input image channels (default=3)
+        out_channels (int) : generator output image channels (default=3)
+    '''
+    def __init__(self, in_channels:int=3, out_channels:int=3):
+        super().__init__()
+
+        # architecture
+        self.sequence = nn.Sequential(
+            DownSample(in_channels + out_channels, 64, batchnorm=False),
+            DownSample(64, 128, batchnorm=False),
+            DownSample(128, 256, batchnorm=False),
+            nn.ZeroPad2d(1),
+            nn.Conv2d(256, 512, 4, 1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2),
+            nn.ZeroPad2d(1),
+            nn.Conv2d(512, 1, 4, 1)
+        )
+
+        # loss functions
+        self.BCE_loss = nn.BCEWithLogitsLoss()
+
+    def forward(self, x:torch.Tensor, y:torch.Tensor) -> torch.Tensor:
+        '''
+        Pass forward through network
+
+        Args:
+            x (torch.Tensor) : input image
+
+        Returns:
+            (torch.Tensor) : output image
+        '''
+        return self.sequence(torch.cat([x, y], dim=1))
+    
+    def loss(self, dis_real_output:torch.Tensor, dis_generated_output:torch.Tensor) -> torch.Tensor:
+        '''
+        Compute the gerator loss
+
+        Args:
+            disc_real_output (torch.Tensor) : discriminator output for real image
+            disc_generated_output (torch.Tensor) : discriminator output for gernated image
+
+        Returns:
+            loss (torch.Tensor) : generator loss
+        '''
+        real_loss = self.BCE_loss(dis_real_output, torch.ones_like(dis_real_output))
+        generated_loss = self.BCE_loss(dis_generated_output, torch.zeros_like(dis_generated_output))
+
+        loss = real_loss + generated_loss
+
+        return loss
+
+class Pix2PixModel(nn.Module):
+    '''
+    Pix2Pix implementation
+
+    Args:
+        device (torce.device) : device to use (default=torch.device('cuda'))
+        in_channels (int) : generator input image channels (default=3)
+        out_channels (int) : generator output image channels (default=3)
+        learning_rate (float) : model learing rate (default=2e-4)
+        beta_1 (float) : optimizer beta 1 (default=0.5)
+    '''
+    def __init__(self, device:torch.device=torch.device('cuda'), in_channels:int=3, out_channels:int=3, learning_rate:float=2e-4, beta_1:float=0.5):
+        super().__init__()
+
+        # store device
+        self.device = device
+
+        # create models
+        self.gen = Generator(in_channels, out_channels).to(device)
+        self.dis = Discriminator(in_channels, out_channels).to(device)
+
+        # define optimizers
+        self.opt_gen = torch.optim.Adam(self.gen.parameters(), lr=learning_rate, betas=(beta_1, 0.999))
+        self.opt_dis = torch.optim.Adam(self.dis.parameters(), lr=learning_rate, betas=(beta_1, 0.999))
+
+        # store learning reate
+        self.learning_rate = learning_rate
+
+        # loss history
+        self.history = {
+            'Discriminator' : [],
+            'Generator' : []
+        }
+
+    def step(self, x:torch.Tensor, y:torch.Tensor) -> None:
+        '''
+        Training step
+
+        Args:
+            x (torch.Tensor) : input images batch
+            y (torch.Tensor) : target images batch
 
         Returns:
             None
         '''
-        # loop
-        for x, y in tqdm(loader):
-            # GPU acceleration
-            x = x.cuda()
-            y = y.cuda()
+        # convert to same device space
+        x = x.to(self.device)
+        y = y.to(self.device)
 
-            # generate image
-            y_fake = self.net_gen(x)
+        # generate image
+        gen_output = self.gen(x)
 
-            # real image
-            dis_real = self.net_dis(x, y)
-            dis_real_loss = self.BCE_Loss(dis_real, torch.ones_like(dis_real))
+        # analyze images
+        dis_real_output = self.dis(x, y)
+        dis_generated_output = self.dis(x, gen_output.detach())
 
-            # fake image
-            dis_fake = self.net_dis(x, y_fake.detach())
-            dis_fake_loss = self.BCE_Loss(dis_fake, torch.zeros_like(dis_fake))
+        # compute discriminator loss
+        dis_loss = self.dis.loss(dis_real_output, dis_generated_output)
 
-            # average loss
-            dis_loss = (dis_real_loss + dis_fake_loss) / 2
+        # train discriminator
+        self.dis.zero_grad()
+        dis_loss.backward()
+        self.opt_dis.step()
 
-            # store loss
-            self.history['dis'].append(dis_loss.cpu().detach())
+        # analyze generated image
+        dis_generated_output = self.dis(x, gen_output)
+        
+        # compute generator loss
+        gen_loss = self.gen.loss(dis_generated_output, gen_output, y)
 
-            # train discriminator
-            self.net_dis.zero_grad()
-            dis_loss.backward()
-            self.opt_dis.step()
-            
-            # compute loss
-            dis_fake = self.net_dis(x, y_fake)
-            gen_fake_loss = self.BCE_Loss(dis_fake, torch.ones_like(dis_fake))
+        # train generator
+        self.opt_gen.zero_grad()
+        gen_loss.backward()
+        self.opt_gen.step()
 
-            gen_loss = gen_fake_loss + self.L1_Loss(y_fake,y) * l1_lambda
-            
-            # store loss
-            self.history['gen'].append(gen_loss.cpu().detach())
+        # store history
+        self.history['Discriminator'].append(dis_loss.cpu().detach().numpy())
+        self.history['Generator'].append(gen_loss.cpu().detach().numpy())
 
-            # train generator
-            self.opt_gen.zero_grad()
-            gen_loss.backward()
-            self.opt_gen.step()
-
-    def train(self, dataset:Dataset, epochs:int=800, batch_size:int=16, load:int=0, checkpoint:int=0) -> None:
+    def learn(self, dataset:Dataset, epochs:int=800, batch_size:int=16, checkpoints:int=10, last_checkpoint:str=None) -> None:
         '''
         Train Image-to-Image model
 
@@ -334,77 +345,148 @@ class Image2Image():
             dataset (Dataset) : torch dataset to train on
             epochs (int) : number of epochs (default=800)
             batch_size (int) : size of batch of data (default=16)
-            load (int) : load checkpoint from specified epoch (default=0)
-            checkpoint (int) : number of epochs per checkpoints (default=0)
+            checkpoints (int) : number of epochs per checkpoint
+            last_checkpoint (str) : path to last checkpoint
 
         Returns:
             None
         '''
+        # set to training
+        #self.train()
+        
         # create dataloader
         loader = DataLoader(dataset, batch_size, shuffle=True)
 
-        # load model
-        if load:
-            utils.load_checkpoint(self.net_dis, self.opt_dis, self.learning_rate, 'cuda:0', f'checkpoints\\checkpoint_dis-{load}.pt')
-            utils.load_checkpoint(self.net_dis, self.opt_dis, self.learning_rate, 'cuda:0', f'checkpoints\\checkpoint_gen-{load}.pt')
+        # load checkpoint
+        epoch0 = 0
+        if last_checkpoint:
+            epoch0 = self.load_checkpoint(last_checkpoint)
+            print(f'Loaded checkpoint {os.path.basename(last_checkpoint)}')
 
-        # train at each epoch
-        for epoch in range(epochs):
-            # train for an epoch
-            self.epoch(loader)
+        # loop through epochs
+        print('Training')
+        for epoch in tqdm(range(epoch0, epochs)):
+            # loop through batches
+            for x, y in tqdm(loader, desc=f'Epoch {epoch+1}', leave=False):
+                # train
+                self.step(x, y)
 
-            # save checkpoint
-            if checkpoint and (epoch % checkpoint == 0):
-                utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_dis-{epoch+1}.pt')
-                utils.save_checkpoint(self.net_dis, self.opt_dis, f'checkpoints\\checkpoint_gen-{epoch+1}.pt')
+            # checkpoint
+            if (epoch + 1) % checkpoints == 0:
+                name = f'epoch_{epoch+1}'
+                self.save_checkpoint(epoch=epoch+1, name=name)
 
-    def plot_history(self) -> None:
+                # save sample
+                x, y, pred = self.predict(dataset)
+
+                utils.save_sample(x.cpu(), y, pred.cpu(), name=name)
+
+
+    def predict(self, dataset:Dataset, batch_size:int=16, shuffle:bool=False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         '''
-        Plot loss history
+        Predict a batch
 
         Args:
-            None
+            dataset (Dataset) : torch dataset to train on
+            batch_size (int) : size of batch of data (default=16)
+            shuffle (bool) : shuffle dataset (default=False)
 
         Returns:
-            None
+            x (torch.Tensor) : input images
+            y (torch.Tensor) : target images
+            pred (torch.Tensor) : prediction
         '''
-        utils.plot_loss(self.history)
+        # set to eval
+        #self.eval()
 
-    def plot_predictions(self, dataset:Dataset) -> None:
-        '''
-        Plot some predictions
+        # create dataloader
+        loader = DataLoader(dataset, batch_size, shuffle=shuffle)
 
-        Args:
-            dataset (Dataset) : dataset to predict with
-
-        Returns:
-            None
-        '''
-        loader = DataLoader(dataset, batch_size=64)
-
+        # pull
         x, y = next(iter(loader))
 
-        with torch.no_grad():
-            pred = self.net_gen(x.cuda()).cpu().detach()
+        # predict
+        pred = self.gen.predict(x.to(self.device))
 
-        # plot
-        utils.plot_images(x * 0.5 + 0.5, 'Input Images', show=False)
-        utils.plot_images(y * 0.5 + 0.5, 'Target Images', show=False)
-        utils.plot_images(pred * 0.5 + 0.5, 'Pred Images')
+        # return prediction
+        return x.cpu().detach(), y, pred.cpu().detach()
+    
+    def save_checkpoint(self, epoch:int=0, dirname:str='checkpoints', name:str='checkpoint') -> None:
+        '''
+        Save a checkpoint
 
+        Args:
+            epoch (int) : current epoch
+            dirname (str) : directory to save to
+            name (str) : checkpoint save name
+
+        Returns:
+            None
+        '''
+        # make path
+        path = os.path.abspath(dirname)
+        path = os.path.join(path, f'{name}.pt')
+
+        # create checkpoint
+        checkpoint = {
+            'epoch' : epoch,
+            'history' : self.history,
+            'gen_state_dict': self.gen.state_dict(),
+            'dis_state_dict': self.dis.state_dict(),
+            'opt_gen_state_dict': self.opt_gen.state_dict(),
+            'opt_dis_state_dict': self.opt_dis.state_dict(),
+        }
+
+        # save
+        torch.save(checkpoint, path)
+
+    def load_checkpoint(self, filename:str='checkpoints') -> int:
+        '''
+        Load a checkpoint
+
+        Args:
+            filename (str) : checkpoint filename / path
+
+        Returns:
+            epoch (int) : last epoch
+        '''
+        # make path
+        path = os.path.abspath(filename)
+
+        # load checkpoint
+        checkpoint = torch.load(path, map_location=self.device)
+
+        # assign state
+        self.gen.load_state_dict(checkpoint["gen_state_dict"])
+        self.dis.load_state_dict(checkpoint["dis_state_dict"])
+
+        self.opt_gen.load_state_dict(checkpoint["opt_gen_state_dict"])
+        self.opt_dis.load_state_dict(checkpoint["opt_dis_state_dict"])
+
+        # set learning rates
+        for param_group in self.opt_gen.param_groups:
+            param_group["lr"] = self.learning_rate
+
+        for param_group in self.opt_dis.param_groups:
+            param_group["lr"] = self.learning_rate
+
+        # get history
+        self.history = checkpoint['history']
+
+        # return epoch
+        return checkpoint['epoch']
+    
 if __name__ == '__main__':
-    def test_disc():
-        x = torch.randn((1, 3, 256, 256))
-        y = torch.randn((1, 3, 256, 256))
-        Model = Discriminator()
-        print(Model.model)
-        pred = Model(x, y)
-        print(pred.shape)
-    test_disc()
+    # create sample input
+    x = torch.randn((1, 3, 256, 256))
+    y = torch.randn((1, 3, 256, 256))
+    
+    # test discriminator
+    dis = Discriminator()
+    pred = dis(x, y)
+    print(pred.shape)
 
-    def test_gen():
-        x = torch.randn((1, 3, 256, 256))
-        model = Generator(in_channels=3, features=64)
-        preds = model(x)
-        print(preds.shape)
-    test_gen()
+    # test generator
+    gen = Generator()
+    preds = gen(x)
+    print(preds.shape)

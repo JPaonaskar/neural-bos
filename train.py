@@ -9,7 +9,7 @@ Referances:
 import torch
 
 import utils
-import models
+import pix2pix
 import dataset
 import synth_gen
 
@@ -17,7 +17,7 @@ import synth_gen
 train = dataset.I2I_Dataset('datasets\\maps\\train')
 val = dataset.I2I_Dataset('datasets\\maps\\val')
 
-i2i = models.Image2Image(torch.device('cuda'))
+i2i = pix2pix.Pix2PixModel()
 
 i2i.learn(train, epochs=20, checkpoints=5)#, last_checkpoint='checkpoints\epoch_20.pt')
 utils.plot_loss(i2i.history)

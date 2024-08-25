@@ -1,9 +1,9 @@
 import torch
 
-import pix2pix
+import pix2pix_medium
 import models
 
-i2i_hard = pix2pix.Image2Image()
+i2i_hard = pix2pix_medium.Image2Image()
 i2i_config = models.Image2Image(torch.device('cuda'))
 
 # check optimizers

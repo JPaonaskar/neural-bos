@@ -461,7 +461,7 @@ class Image2Image(nn.Module):
             None
         '''
         # set to training
-        self.train()
+        #self.train()
         
         # create dataloader
         loader = DataLoader(dataset, batch_size, shuffle=True)
@@ -506,7 +506,7 @@ class Image2Image(nn.Module):
             pred (torch.Tensor) : prediction
         '''
         # set to eval
-        self.eval()
+        #self.eval()
 
         # create dataloader
         loader = DataLoader(dataset, batch_size, shuffle=shuffle)
