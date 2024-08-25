@@ -17,6 +17,9 @@ import utils
 
 LAMBDA = 100
 
+IMAGE_WIDTH = 256
+IMAGE_HEIGHT = 256
+
 # weight init function
 def weight_init(module:nn.Module) -> None:
     '''
