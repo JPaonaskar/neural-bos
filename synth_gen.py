@@ -54,7 +54,7 @@ class Map():
 
         self.d = displacement
 
-    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         '''
         Create map
 
@@ -62,15 +62,17 @@ class Map():
             None
 
         Returns:
-            mask (np.ndarray) : object mask
+            bg_mask (np.ndarray) : backgound object mask
+            dp_mask (np.ndarray) : displaced object mask
             dx (np.ndarray) : x displacement
             dy (np.ndarray) : y displacement
         '''
-        mask = np.ones((self.h, self.w))
+        bg_mask = np.ones((self.h, self.w))
+        dp_mask = np.ones((self.h, self.w))
         dx = np.zeros((self.h, self.w))
         dy = np.zeros((self.h, self.w))
 
-        return mask, dx, dy
+        return bg_mask, dp_mask, dx, dy
 
 class Perlin(Map):
     '''
@@ -91,7 +93,7 @@ class Perlin(Map):
 
         self.d = displacement
 
-    def _sample(self, noise:PerlinNoise):
+    def _sample(self, noise:PerlinNoise) -> np.ndarray:
         '''
         Sample a noise map
 
@@ -105,7 +107,19 @@ class Perlin(Map):
 
         return sample
 
-    def create(self):
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Create map
+
+        Args:
+            None
+
+        Returns:
+            bg_mask (np.ndarray) : backgound object mask
+            dp_mask (np.ndarray) : displaced object mask
+            dx (np.ndarray) : x displacement
+            dy (np.ndarray) : y displacement
+        '''
         # create outputs
         mask = np.ones((self.h, self.w))
         dx = np.zeros((self.h, self.w))
@@ -132,7 +146,7 @@ class Perlin(Map):
         dy = dy * d
 
         # output
-        return mask, dx, dy
+        return mask, mask.copy(), dx, dy
 
 class Mach(Map):
     '''
@@ -143,14 +157,107 @@ class Mach(Map):
 
     '''
 
-class Laminar_Candle(Map):
+class Candle(Map):
     '''
-    Create laminar candle like denisty map
+    Create candle like denisty map
 
     Args:
-        None
+        width (int) : map width
+        height (int) : map height
+        displacement (list[float]) : displacement range
 
     '''
+    def __init__(self, width:int=256, height:int=256, displacement:list[float]=[5.0, 10.0], angle:float=30, a:int=20, b:int=10, thickness:int=10, radius:int=40, blur:int=13):
+        self.w = width
+        self.h = height
+
+        self.d = displacement
+        
+        self.a = a
+        self.b = b
+
+        self.ang = angle
+        self.r = radius
+        self.t = thickness
+
+        self.blur = blur
+
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Create map
+
+        Args:
+            None
+
+        Returns:
+            bg_mask (np.ndarray) : backgound object mask
+            dp_mask (np.ndarray) : displaced object mask
+            dx (np.ndarray) : x displacement
+            dy (np.ndarray) : y displacement
+        '''
+        # create outputs
+        mask = np.ones((self.h, self.w))
+        dx = np.zeros((self.h, self.w))
+        dy = np.zeros((self.h, self.w))
+
+        # random values
+        ang = self.ang * (2 * np.random.rand() - 1)
+        d = np.random.rand() * (self.d[1] - self.d[0]) + self.d[0]
+
+        # center
+        cy = self.h - self.a
+        cx = self.w // 2
+
+        # place candle
+        cv2.ellipse(mask, (cx, cy), (self.b, self.a), ang, 0, 360, 0, -1)
+        ang = -np.deg2rad(ang)
+        
+        # draw laminar lines
+        for img in [dx, dy]:
+            for x in [cx - self.b, cx + self.b]:
+                # displacement value
+                val = (2 * np.random.rand() - 1) * d
+
+                # end points
+                vx = round(np.sin(ang) * self.h / 2 + np.random.randn())
+                vy = round(np.cos(ang) * self.h / 2 + np.random.randn())
+
+                # draw lines
+                cv2.line(img, (x, cy), (x - vx, cy - vy), val, self.t)
+
+        # draw turbulance
+        for img in [dx, dy]:
+            x = self.w * (1 - np.sin(ang)) * 0.5
+            y = self.h // 2
+
+            # draw circles
+            while y > 0:
+                # displacement value
+                val = (2 * np.random.rand() - 1) * d
+
+                # random arc
+                r = (self.r - self.t) * np.random.rand() + self.t
+                a = np.random.randint(0, 360)
+                b = np.random.randint(60, 360)
+
+                # draw arc
+                cv2.ellipse(img, (round(x), round(y)), (round(r), round(r)), a, 0, b, val, self.t)
+
+                # take radius size step
+                x -= np.sin(ang) * r
+                y -= np.cos(ang) * r
+
+                # go crazy
+                x -= r * np.random.randn() * 0.5
+                y -= r * np.random.randn() * 0.5
+
+        # blur displacements
+        ksize = (self.blur, self.blur)
+        dx = cv2.GaussianBlur(dx, ksize, 0)
+        dy = cv2.GaussianBlur(dy, ksize, 0)
+
+        # output
+        return np.ones_like(mask), mask, dx, dy
 
 class Density_Maps(Map):
     '''
@@ -176,7 +283,7 @@ class Density_Maps(Map):
         if prob != 1:
             raise ValueError(f'Expected proabilities to sum to 1.0 but got {prob}')
 
-    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         '''
         Create a random density map
 
@@ -184,7 +291,8 @@ class Density_Maps(Map):
             None
 
         Returns:
-            mask (np.ndarray) : object mask
+            bg_mask (np.ndarray) : backgound object mask
+            dp_mask (np.ndarray) : displaced object mask
             dx (np.ndarray) : x displacement
             dy (np.ndarray) : y displacement
         '''
@@ -271,13 +379,11 @@ class BOS_Dataset_Generator():
         displaced = np.zeros((self.h, self.w))
 
         # indexes
-        row, col = np.meshgrid(np.arange(self.h), np.arange(self.w))
-        row = row.flatten()
-        col = col.flatten()
+        col, row = np.meshgrid(np.arange(self.w), np.arange(self.h))
 
         # pull
-        row_bg = np.around((self.d + row + dy.flatten()) * self.n).astype(np.uint16)
-        col_bg = np.around((self.d + col + dx.flatten()) * self.n).astype(np.uint16)
+        row_bg = np.around((self.d + row + dy) * self.n).astype(np.uint16)
+        col_bg = np.around((self.d + col + dx) * self.n).astype(np.uint16)
 
         displaced[row, col] = background[row_bg, col_bg]
 
@@ -302,7 +408,7 @@ class BOS_Dataset_Generator():
         background[~mask] = -1.0
 
         # create density map
-        mask, dx, dy = self.d_map.create()
+        bg_mask, dp_mask, dx, dy = self.d_map.create()
 
         # build displaced image
         displaced = self._trace(background, dx, dy)
@@ -310,8 +416,9 @@ class BOS_Dataset_Generator():
         # crop background
         background = background[self.d:-self.d, self.d:-self.d]
 
-        # mask backgound
-        background[mask == 0] = -1.0
+        # mask
+        background[bg_mask == 0] = -1.0
+        displaced[dp_mask == 0] = -1.0
 
         # build images
         input_image = np.dstack([background, displaced, np.zeros_like(background)])
@@ -534,26 +641,32 @@ if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
     # create density maps
-    map1 = Perlin(width=512, height=512, octaves=[2])
-    map2 = Perlin(width=512, height=512, octaves=[3])
-    map3 = Perlin(width=512, height=512, octaves=[4])
-    map4 = Perlin(width=512, height=512, octaves=[2, 4])
-    map5 = Perlin(width=512, height=512, octaves=[6])
-    map6 = Perlin(width=512, height=512, octaves=[3, 6])
+    map0 = Candle(width=512, height=512)
+    map1 = Candle(width=512, height=512, thickness=2)
+    map2 = Candle(width=512, height=512, radius=50)
 
-    d_map = Density_Maps((0.3, map1), (0.2, map2), (0.1, map3), (0.15, map4), (0.1, map5), (0.15, map6))
+    map3 = Perlin(width=512, height=512, octaves=[3])
+    map4 = Perlin(width=512, height=512, octaves=[4])
+    map5 = Perlin(width=512, height=512, octaves=[6])
+    map6 = Perlin(width=512, height=512, octaves=[2, 4])
+
+    d_map = Density_Maps((0.2, map0), (0.1, map1), (0.2, map2), (0.1, map3), (0.15, map4), (0.15, map5), (0.1, map6))
 
     # create dataset
-    data = BOS_Dataset_Generator(d_map, length=800, width=512, height=512)
-    data.build('datasets\\perlin\\train')
+    data = BOS_Dataset_Generator(d_map, length=500, width=512, height=512)
+    data.build('datasets\\bos\\val')
 
     # show part of the dataset
-    dataset = BOS_Dataset('datasets\\perlin\\train')
+    dataset = BOS_Dataset('datasets\\bos\\val')
     loader = DataLoader(dataset, batch_size=25)
 
-    x, y = next(iter(loader))
+    # get last batch
+    x, y = None, None
+    for xi, yi in loader:
+        x = xi
+        y = yi
 
     # plot
     utils.plot_bos_images(x)
-    utils.plot_images(x, 'Input Images', rows=2, cols=2, show=False)
-    utils.plot_images(y, 'Target Images', rows=2, cols=2)
+    utils.plot_images(x, 'Input Images', rows=5, cols=5, show=False)
+    utils.plot_images(y, 'Target Images', rows=5, cols=5)
