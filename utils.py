@@ -152,19 +152,29 @@ def save_sample(x:torch.Tensor, y:torch.Tensor, pred:torch.Tensor, dirname:str='
     '''
     # create path
     path = os.path.abspath(dirname)
-    path = os.path.join(path, f'{name}.tif')
+    path = os.path.join(path, f'{name}.png')
 
-    # get first image set
-    x = x[0].permute(1, 2, 0).detach().clone().numpy()
-    y = y[0].permute(1, 2, 0).detach().clone().numpy()
-    pred = pred[0].permute(1, 2, 0).detach().clone().numpy()
+    # convert to numpy
+    x = x.permute(0, 2, 3, 1).detach().clone().numpy()
+    y = y.permute(0, 2, 3, 1).detach().clone().numpy()
+    pred = pred.permute(0, 2, 3, 1).detach().clone().numpy()
 
-    # stack
-    image = np.hstack([x, y, pred])
+    # plot and save
+    fig = plt.figure(figsize=(4, 6))
 
-    # convert
-    image = (image * 127 + 127).astype(np.uint8)
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    for i in range(pred.shape[0]):
+        if (i < 8):
+            # stack
+            x_i = x[i, :, :, :]
+            y_i = y[i, :, :, :]
+            pred_i = pred[i, :, :, :]
 
-    # save
-    cv2.imwrite(path, image)
+            image = np.hstack([x_i, y_i, pred_i])
+
+            # plot
+            plt.subplot(4, 2, i+1)
+            plt.imshow(image * 0.5 + 0.5)
+            plt.axis('off')
+
+    plt.savefig(path)
+    plt.close(fig)

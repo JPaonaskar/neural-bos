@@ -4,9 +4,9 @@
 An attempt to use an Image-to-Image network to create a same resolution schlieren density map
 
 ## Updates
-Trained for 200 epochs without augmentations and 100 more with. Strong generation with only small errors and potential to gererate even better images
+Trained for 100 epochs with larger augmentations. Strong generation with only small noise in output
 
-![BOS GAN Training](https://github.com/JPaonaskar/neural-bos/blob/main/figures/BOS_GAN_0-300.png)
+![BOS GAN Training](https://github.com/JPaonaskar/neural-bos/blob/main/figures/BOS_GAN_0-100.png)
 
 |     | Input Images | Target Images | Predicted Image |
 | --- | --- | --- | --- |

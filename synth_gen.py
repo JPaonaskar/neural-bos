@@ -28,8 +28,12 @@ transform = A.Compose([
     A.RandomCrop(width=256, height=256)
 ], additional_targets={'target' : 'image'})
 
+transform_mask = A.Compose([
+    A.RandomShadow((0, 0, 1, 1), num_shadows_upper=1, shadow_dimension=5, shadow_intensity_range=(0.0, 0.0), p=0.2)
+])
+
 transform_input = A.Compose([
-    #A.RandomShadow((0, 0, 1, 1), num_shadows_upper=2, shadow_dimension=5, shadow_intensity_range=(0.1, 0.3), p=0.1),
+    A.RandomShadow((0, 0, 1, 1), num_shadows_upper=2, shadow_dimension=5, shadow_intensity_range=(0.5, 0.9), p=0.5),
     A.Blur((3, 5), p=0.1),
     ToTensorV2()
 ])
@@ -39,11 +43,12 @@ transform_target = A.Compose([
 ])
 
 transform_backgound = A.Compose([
-    A.RandomBrightnessContrast(brightness_limit=(-0.2, 0.1), contrast_limit=(-0.2, 0.0)),
+    A.ColorJitter(brightness=(0.8, 1.0), contrast=(0.8, 1.1), saturation=(0.8, 1.1), hue=(-0.1, 0.1), p=0.7),
+    A.Perspective(scale=(0.01, 0.05), p=0.7),
     A.RandomScale((0.0, 0.2), interpolation=cv2.INTER_LINEAR, always_apply=True),
     A.RandomRotate90(p=0.2),
     A.Flip(p=0.7),
-    A.Blur(3, p=0.5)
+    A.Blur(blur_limit=5, p=0.5)
 ])
 
 class Map():
@@ -288,7 +293,7 @@ class Compose_Maps(Map):
             prob += p
 
         # invalid probability
-        if prob != 1:
+        if abs(prob - 1.0) > 0.0001:
             raise ValueError(f'Expected proabilities to sum to 1.0 but got {prob}')
 
     def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -458,7 +463,7 @@ class Compose_Backgrounds(Background):
             prob += p
 
         # invalid probability
-        if prob != 1:
+        if abs(prob - 1.0) > 0.0001:
             raise ValueError(f'Expected proabilities to sum to 1.0 but got {prob}')
 
     def create(self) -> np.ndarray:
@@ -691,6 +696,9 @@ class BOS_Dataset_Generator():
                 # create image
                 input_image, target_image = future.result()
                 image = self._build_i2i(input_image, target_image)
+
+                # free mememory (remove future and associated data)
+                futures[i] = None
                 
                 # save image
                 cv2.imwrite(os.path.join(dirname, f'{name}{i+imgs:04d}_d={self.d}.tif'), image)
@@ -725,6 +733,27 @@ class BOS_Dataset(Dataset):
             # cut images
             input_image, target_image = self._cut(image)
 
+            # masking
+            mask = np.ones_like(input_image) * 255
+            mask = transform_mask(image=mask)['image']
+
+            input_image[mask < 127] = 0
+            target_image[mask < 127] = 127
+
+            # augmentations
+            transformed = transform(image=input_image, target=target_image)
+            input_image = transformed['image']
+            target_image = transformed['target']
+
+            input_image = transform_input(image=input_image)['image']
+            target_image = transform_target(image=target_image)['image']
+
+            # normalize input image
+            input_image = input_image.type(torch.float32) / 127.5 - 1.0
+
+            # normailize target
+            target_image = target_image.type(torch.float32) / 127.5 - 1.0
+
             # convert to displacements
             if not self.clamped:
                 # get displacement size
@@ -735,14 +764,6 @@ class BOS_Dataset(Dataset):
 
                 # convert
                 target_image = target_image * d
-
-            # augmentations
-            transformed = transform(image=input_image, target=target_image)
-            input_image = transformed['image']
-            target_image = transformed['target']
-
-            input_image = transform_input(image=input_image)['image']
-            target_image = transform_target(image=target_image)['image']
 
             # add images
             self.input_images.append(input_image)
@@ -764,14 +785,8 @@ class BOS_Dataset(Dataset):
 
         cut = w // 2
 
-        input_image = image[:, :cut, :].astype(np.float32)
-        target_image = image[:, cut:, :].astype(np.float32)
-
-        # normalize input image
-        input_image = (input_image - 127.5) / 127.5
-
-        # normailize target
-        target_image = (target_image - 127.5) / 127.5
+        input_image = image[:, :cut, :]
+        target_image = image[:, cut:, :]
 
         # output
         return input_image, target_image
@@ -815,29 +830,25 @@ if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
     # create density maps
-    map0 = Candle(width=512, height=512)
-    map1 = Candle(width=512, height=512, thickness=2)
-    map2 = Candle(width=512, height=512, radius=50)
+    map0 = Candle(width=512, height=512, displacement=[1, 5])
+    map1 = Candle(width=512, height=512, thickness=2, displacement=[1, 5])
+    map2 = Candle(width=512, height=512, radius=50, displacement=[1, 5])
 
-    map3 = Perlin(width=512, height=512, octaves=[3])
-    map4 = Perlin(width=512, height=512, octaves=[4])
-    map5 = Perlin(width=512, height=512, octaves=[6])
-    map6 = Perlin(width=512, height=512, octaves=[2, 4])
+    map3 = Perlin(width=512, height=512, octaves=[3], displacement=[1, 5])
+    map4 = Perlin(width=512, height=512, octaves=[4], displacement=[1, 5])
+    map5 = Perlin(width=512, height=512, octaves=[6], displacement=[1, 5])
 
-    d_map = Compose_Maps((0.2, map0), (0.1, map1), (0.2, map2), (0.1, map3), (0.15, map4), (0.15, map5), (0.1, map6))
+    d_map = Compose_Maps((0.3, map0), (0.2, map1), (0.2, map2), (0.1, map3), (0.1, map4), (0.1, map5))
 
     # create backgrounds
-    bg0 = Hybrid_Background(width=5320, height=5320)
-    bg1 = Hybrid_Background(width=5320, height=5320)
-
-    background = Compose_Backgrounds((0.5, bg0), (0.5, bg1))
+    background = Hybrid_Background(width=10440, height=10440) # size is large for higher resolution displacements
 
     # create dataset
     data = BOS_Dataset_Generator(d_map, background, length=800, width=512, height=512)
-    data.build('datasets\\hybrid\\val')
+    data.build('datasets\\hybrid\\train')
 
     # show part of the dataset
-    dataset = BOS_Dataset('datasets\\hybrid\\val')
+    dataset = BOS_Dataset('datasets\\hybrid\\train', clamped=True)
     loader = DataLoader(dataset, batch_size=25)
 
     # get last batch
