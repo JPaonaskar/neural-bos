@@ -363,7 +363,7 @@ class Pix2PixModel(nn.Module):
         self.history['Discriminator'].append(dis_loss.cpu().detach().numpy())
         self.history['Generator'].append(gen_loss.cpu().detach().numpy())
 
-    def learn(self, dataset:Dataset, epochs:int=800, batch_size:int=16, checkpoints:int=10, last_checkpoint:str=None) -> None:
+    def learn(self, dataset:Dataset, epochs:int=800, batch_size:int=16, checkpoints:int=10, last_checkpoint:str=None, load_history:bool=False) -> None:
         '''
         Train Image-to-Image model
 
@@ -371,8 +371,9 @@ class Pix2PixModel(nn.Module):
             dataset (Dataset) : torch dataset to train on
             epochs (int) : number of epochs (default=800)
             batch_size (int) : size of batch of data (default=16)
-            checkpoints (int) : number of epochs per checkpoint
-            last_checkpoint (str) : path to last checkpoint
+            checkpoints (int) : number of epochs per checkpoint (default=10)
+            last_checkpoint (str) : path to last checkpoint (default=None)
+            load_history (bool) : load existing history (default=False)
 
         Returns:
             None
@@ -386,7 +387,7 @@ class Pix2PixModel(nn.Module):
         # load checkpoint
         epoch0 = 0
         if last_checkpoint:
-            epoch0 = self.load_checkpoint(last_checkpoint)
+            epoch0 = self.load_checkpoint(last_checkpoint, load_history=load_history)
             print(f'Loaded checkpoint {os.path.basename(last_checkpoint)}')
 
         # loop through epochs
@@ -466,12 +467,13 @@ class Pix2PixModel(nn.Module):
         # save
         torch.save(checkpoint, path)
 
-    def load_checkpoint(self, filename:str='checkpoints') -> int:
+    def load_checkpoint(self, filename:str='checkpoints', load_history:bool=False) -> int:
         '''
         Load a checkpoint
 
         Args:
             filename (str) : checkpoint filename / path
+            load_history (bool) : load existing history (default=False)
 
         Returns:
             epoch (int) : last epoch
@@ -497,10 +499,13 @@ class Pix2PixModel(nn.Module):
             param_group["lr"] = self.learning_rate
 
         # get history
-        self.history = checkpoint['history']
+        epoch = 0
+        if load_history:
+            epoch = checkpoint['epoch']
+            self.history = checkpoint['history']
 
         # return epoch
-        return checkpoint['epoch']
+        return epoch
     
 if __name__ == '__main__':
     # create sample input

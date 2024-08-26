@@ -86,14 +86,16 @@ class VideoGUI():
     GUI interface to test with a video file
 
     Args:
+        checkpoint (str) : path to latest checkpoint
         video (str) : path to video (default=None)
         scale (float) : visual output scale (default=1.0)
         device (torch.device) : model device (default=torch.device('cuda'))
 
     '''
-    def __init__(self, video:str=None, scale:float=1.0, device:torch.device=torch.device('cuda')):
+    def __init__(self, checkpoint:str, video:str=None, scale:float=1.0, device:torch.device=torch.device('cuda')):
         # create model
         self.model = pix2pix.Pix2PixModel(device)
+        self.model.load_checkpoint(checkpoint)
 
         # store frames
         self.w = None
@@ -182,17 +184,6 @@ class VideoGUI():
 
         # paste prediction
         self.results[start+1:, self.window[1]:self.window[3], self.window[0]:self.window[2], :] = pred
-
-    def save(self, filename:str) -> None:
-        '''
-        Save processed frames
-
-        Args:
-            filename (str) : path to save file
-
-        Returns:
-            None
-        '''
 
     def _assign_window(self, x:int, y:int) -> None:
         '''
@@ -402,5 +393,6 @@ class VideoGUI():
         cv2.destroyAllWindows()
 
 if __name__ == '__main__':
-    gui = VideoGUI('D:\\BOS\\Sample Data\\P8100004.MOV', scale=0.5)
+    gui = VideoGUI('checkpoints\\bos\\epoch_300.pt', scale=0.5)
+    gui.read('D:\\BOS\\Sample Data\\P8100004.MOV')
     gui.show()

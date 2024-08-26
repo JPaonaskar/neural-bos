@@ -29,7 +29,7 @@ transform = A.Compose([
 ], additional_targets={'target' : 'image'})
 
 transform_input = A.Compose([
-    A.RandomBrightnessContrast(brightness_limit=(-0.1, 0.1), contrast_limit=(-0.1, 0.1)),
+    #A.RandomShadow((0, 0, 1, 1), num_shadows_upper=2, shadow_dimension=5, shadow_intensity_range=(0.1, 0.3), p=0.1),
     A.Blur((3, 5), p=0.1),
     ToTensorV2()
 ])
@@ -38,9 +38,17 @@ transform_target = A.Compose([
     ToTensorV2()
 ])
 
+transform_backgound = A.Compose([
+    A.RandomBrightnessContrast(brightness_limit=(-0.2, 0.1), contrast_limit=(-0.2, 0.0)),
+    A.RandomScale((0.0, 0.2), interpolation=cv2.INTER_LINEAR, always_apply=True),
+    A.RandomRotate90(p=0.2),
+    A.Flip(p=0.7),
+    A.Blur(3, p=0.5)
+])
+
 class Map():
     '''
-    Create a sythetic density map
+    Map template class
 
     Args:
         width (int) : map width
@@ -62,7 +70,7 @@ class Map():
             None
 
         Returns:
-            bg_mask (np.ndarray) : backgound object mask
+            bg_mask (np.ndarray) : background object mask
             dp_mask (np.ndarray) : displaced object mask
             dx (np.ndarray) : x displacement
             dy (np.ndarray) : y displacement
@@ -115,7 +123,7 @@ class Perlin(Map):
             None
 
         Returns:
-            bg_mask (np.ndarray) : backgound object mask
+            bg_mask (np.ndarray) : background object mask
             dp_mask (np.ndarray) : displaced object mask
             dx (np.ndarray) : x displacement
             dy (np.ndarray) : y displacement
@@ -190,7 +198,7 @@ class Candle(Map):
             None
 
         Returns:
-            bg_mask (np.ndarray) : backgound object mask
+            bg_mask (np.ndarray) : background object mask
             dp_mask (np.ndarray) : displaced object mask
             dx (np.ndarray) : x displacement
             dy (np.ndarray) : y displacement
@@ -259,7 +267,7 @@ class Candle(Map):
         # output
         return np.ones_like(mask), mask, dx, dy
 
-class Density_Maps(Map):
+class Compose_Maps(Map):
     '''
     Class to create random density maps
 
@@ -291,7 +299,7 @@ class Density_Maps(Map):
             None
 
         Returns:
-            bg_mask (np.ndarray) : backgound object mask
+            bg_mask (np.ndarray) : background object mask
             dp_mask (np.ndarray) : displaced object mask
             dx (np.ndarray) : x displacement
             dy (np.ndarray) : y displacement
@@ -307,34 +315,198 @@ class Density_Maps(Map):
             if p > x:
                 # output map
                 return d_map.create()
-            
-        # probabilities don't add up
-        raise ValueError(f'Expected probabilitys to add up to 1.0 but got {p}')
+    
+class Background():
+    '''
+    Background template class
 
+    Args:
+        width (int) : background width
+        height (int) : background height
+
+    '''
+    def __init__(self, width:int=2760, height:int=2760):
+        self.w = width
+        self.h = height
+
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Create background
+
+        Args:
+            None
+
+        Returns:
+            bg_mask (np.ndarray) : background
+        '''
+        background = np.zeros((self.h, self.w))
+
+        return background
+    
+class Synth_Background():
+    '''
+    Synthetic background
+
+    Args:
+        width (int) : background width
+        height (int) : background height
+        size (int) : pixel size
+
+    '''
+    def __init__(self, width:int=2760, height:int=2760, size:int=10):
+        self.w = width
+        self.h = height
+
+        self.size = size
+
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Create background
+
+        Args:
+            None
+
+        Returns:
+            bg_mask (np.ndarray) : background
+        '''
+        # create noise
+        background = np.random.random((self.h // self.size, self.w // self.size))
+
+        # mask
+        mask = background > 0.5
+        background[mask] = 1.0
+        background[~mask] = -1.0
+
+        # resize
+        background = cv2.resize(background, (self.w, self.h), interpolation=cv2.INTER_NEAREST)
+
+        return background
+    
+class Hybrid_Background():
+    '''
+    Background from real image
+
+    Args:
+        width (int) : background width
+        height (int) : background height
+        dirname (str) : directory with backgrounds
+
+    '''
+    def __init__(self, dirname:str='backgrounds', width:int=2760, height:int=2760):
+        self.w = width
+        self.h = height
+
+        # get list of files
+        self.dirname = os.path.abspath(dirname)
+        self.images = os.listdir(self.dirname)
+
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Create background
+
+        Args:
+            None
+
+        Returns:
+            background (np.ndarray) : background
+        '''
+        # read random background image
+        ind = int(np.random.rand() * len(self.images))
+        background = cv2.imread(os.path.join(self.dirname, self.images[ind]))
+
+        # augmentations
+        background = transform_backgound(image=background)['image']
+
+        # grayscale
+        background = cv2.cvtColor(background, cv2.COLOR_RGB2GRAY)
+
+        # trim
+        ar = self.w / self.h
+        
+        h, w = background.shape
+        ar_img = w / h
+
+        if ar_img > ar:
+            background = background[:, :round(h * ar)]
+        else:
+            background = background[:round(w / ar), :]
+
+        # resize
+        background = cv2.resize(background, (self.w, self.h), interpolation=cv2.INTER_LINEAR)
+
+        # normalize
+        background = background.astype(np.float32) / 127.5 - 1
+
+        return background
+
+class Compose_Backgrounds(Background):
+    '''
+    Class to create random density backgrounds
+
+    Args:
+        *backgrounds (list[ tuple[float, Map] ]) : list of backgrounds and their probabilities
+
+    '''
+    def __init__(self, *backgrounds:list[tuple[float, Map]]):
+        self.backgrounds = backgrounds
+
+        # get probability
+        prob = self.backgrounds[0][0]
+
+        # update probability
+        for p, _ in self.backgrounds[1:]:
+            prob += p
+
+        # invalid probability
+        if prob != 1:
+            raise ValueError(f'Expected proabilities to sum to 1.0 but got {prob}')
+
+    def create(self) -> np.ndarray:
+        '''
+        Create a random density map
+
+        Args:
+            None
+
+        Returns:
+            background (np.ndarray) : background
+        '''
+        x = np.random.rand()
+        p = 0
+
+        # get map
+        for prob, background in self.backgrounds:
+            p += prob
+
+            # x is within probability
+            if p > x:
+                # output map
+                return background.create()
 
 class BOS_Dataset_Generator():
     '''
     Generate a BOS dataset
 
     Args:
-        density_map (Map) : density map gernator
+        density_map (Map) : density map gerenator
+        background (Background) : background generator
         length (int) : dataset length (defualt=1600)
         width (int) : image width (defualt=256)
         height (int) : image height (defualt=256)
-        detail (int) : subpixel level (default=10)
         displacement (int) : maximum displacements (default=10)
         octaves (int) : noise octives (default=4)
 
     '''
-    def __init__(self, density_map:Map, length:int=1600, width:int=256, height:int=256, detail:int=10):
+    def __init__(self, density_map:Map, background:Background, length:int=1600, width:int=256, height:int=256):
         self.length = length
 
         self.w = width
         self.h = height
-        self.n = detail
 
         self.d_map = density_map
         self.d = int(np.ceil(self.d_map.d[1]))
+
+        self.background = background
 
         # create image storage
         self.input_images = []
@@ -370,25 +542,34 @@ class BOS_Dataset_Generator():
             dy (np.ndarray) : y displacement
 
         Returns:
+            background_out (np.ndarray) : resized background
             displaced (np.ndarray) : displaced background
         '''
-        # resize
-        background = cv2.resize(background, (background.shape[1] * self.n, background.shape[0] * self.n), interpolation=cv2.INTER_NEAREST)
-
         # build displaced image
         displaced = np.zeros((self.h, self.w))
+        background_out = np.zeros((self.h, self.w))
 
         # indexes
         col, row = np.meshgrid(np.arange(self.w), np.arange(self.h))
 
-        # pull
-        row_bg = np.around((self.d + row + dy) * self.n).astype(np.uint16)
-        col_bg = np.around((self.d + col + dx) * self.n).astype(np.uint16)
+        # size change
+        sh = background.shape[0] / (self.h + 2 * self.d)
+        sw = background.shape[1] / (self.w + 2 * self.d)
+
+        # pull displaced
+        row_bg = np.around((self.d + row + dy) * sh).astype(np.uint16)
+        col_bg = np.around((self.d + col + dx) * sw).astype(np.uint16)
 
         displaced[row, col] = background[row_bg, col_bg]
 
+        # pull background
+        row_bg = np.around((self.d + row) * sh).astype(np.uint16)
+        col_bg = np.around((self.d + col) * sw).astype(np.uint16)
+
+        background_out[row, col] = background[row_bg, col_bg]
+
         # output
-        return displaced
+        return background_out, displaced
 
     def _gen(self) -> None:
         '''
@@ -400,21 +581,14 @@ class BOS_Dataset_Generator():
         Returns:
             None
         '''
-        # create background
-        background = np.random.random((self.h + 2 * self.d, self.w + 2 * self.d))
-
-        mask = background > 0.5
-        background[mask] = 1.0
-        background[~mask] = -1.0
+        # generate background
+        background = self.background.create()
 
         # create density map
         bg_mask, dp_mask, dx, dy = self.d_map.create()
 
         # build displaced image
-        displaced = self._trace(background, dx, dy)
-
-        # crop background
-        background = background[self.d:-self.d, self.d:-self.d]
+        background, displaced = self._trace(background, dx, dy)
 
         # mask
         background[bg_mask == 0] = -1.0
@@ -650,14 +824,20 @@ if __name__ == '__main__':
     map5 = Perlin(width=512, height=512, octaves=[6])
     map6 = Perlin(width=512, height=512, octaves=[2, 4])
 
-    d_map = Density_Maps((0.2, map0), (0.1, map1), (0.2, map2), (0.1, map3), (0.15, map4), (0.15, map5), (0.1, map6))
+    d_map = Compose_Maps((0.2, map0), (0.1, map1), (0.2, map2), (0.1, map3), (0.15, map4), (0.15, map5), (0.1, map6))
+
+    # create backgrounds
+    bg0 = Hybrid_Background(width=5320, height=5320)
+    bg1 = Hybrid_Background(width=5320, height=5320)
+
+    background = Compose_Backgrounds((0.5, bg0), (0.5, bg1))
 
     # create dataset
-    data = BOS_Dataset_Generator(d_map, length=500, width=512, height=512)
-    data.build('datasets\\bos\\val')
+    data = BOS_Dataset_Generator(d_map, background, length=800, width=512, height=512)
+    data.build('datasets\\hybrid\\val')
 
     # show part of the dataset
-    dataset = BOS_Dataset('datasets\\bos\\val')
+    dataset = BOS_Dataset('datasets\\hybrid\\val')
     loader = DataLoader(dataset, batch_size=25)
 
     # get last batch
