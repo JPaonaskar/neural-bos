@@ -73,19 +73,15 @@ class Video_Compute():
     Args:
         checkpoint (str) : path to latest checkpoint
         video (str) : path to video (default=None)
-        scale (float) : displacement scale (default=10.0)
         device (torch.device) : model device (default=torch.device('cuda'))
     '''
-    def __init__(self, checkpoint:str, video:str=None, scale:float=10.0, device:torch.device=torch.device('cuda')):
+    def __init__(self, checkpoint:str, video:str=None, device:torch.device=torch.device('cuda')):
         # create model
         self.model = pix2pix.Pix2PixModel(device)
         self.model.load_checkpoint(checkpoint)
 
         # store frames
         self.frames = []
-
-        # scaling
-        self.scale = scale
 
         # store computed results
         self.computed = []
@@ -127,14 +123,17 @@ class Video_Compute():
         # close capture
         cap.release()
 
-    def compute(self, start:int=0, stop:int=None, step:int=1) -> None:
+    def compute(self, filename:str, fps:int=30, overlap:float=0.5, start:int=0, stop:int=None, step:int=1, colormap:int=None) -> None:
         '''
         Compute displacements with cascade pairing
 
         Args:
+            filename (str) : path to save to
+            fps (int) : frames per second
             start (int) : starting index
             stop (int) : starting index
             step (int) : starting index
+            colormap (int) : colormap to use (default=None)
 
         Returns:
             None
@@ -151,13 +150,13 @@ class Video_Compute():
         frames = self.frames[start+1:stop:step]
 
         # create padded image pairs
-        rows = np.ceil(h / pix2pix.IMAGE_HEIGHT).astype(int)
-        cols = np.ceil(w / pix2pix.IMAGE_WIDTH).astype(int)
+        row_count = np.ceil(h / pix2pix.IMAGE_HEIGHT).astype(int)
+        col_count = np.ceil(w / pix2pix.IMAGE_WIDTH).astype(int)
 
         images = np.zeros((
             len(frames),
-            rows * pix2pix.IMAGE_HEIGHT,
-            cols * pix2pix.IMAGE_WIDTH,
+            row_count * pix2pix.IMAGE_HEIGHT,
+            col_count * pix2pix.IMAGE_WIDTH,
             3
         ), dtype=np.float32)
 
@@ -174,68 +173,94 @@ class Video_Compute():
 
             # add
             images[i][:h, :w, :] = image
+
+        # free memory
+        del ref
+        del frames
         
         # subdivide into image set
-        print(f'Predicting {rows} rows and {cols} cols')
-        for row in tqdm(range(rows), desc='Col'):
-            for col in tqdm(range(cols), desc='Row', leave=False):
-                y1 = row * pix2pix.IMAGE_HEIGHT
-                x1 = col * pix2pix.IMAGE_WIDTH
-                y2 = y1 + pix2pix.IMAGE_HEIGHT
-                x2 = x1 + pix2pix.IMAGE_WIDTH
+        print(f'Predicting and Writing')
 
-                # create as dataset
-                dataset = List_Dataset(images[:, y1:y2, x1:x2, :])
+        # open video writer
+        fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+        video_out = cv2.VideoWriter(filename, fourcc, fps, (w, h))
 
-                # predict
-                _, _, pred = self.model.predict(dataset, shuffle=False, single_batch=False)
-                pred = pred.permute(0, 2, 3, 1).cpu().numpy()
+        # create lists
+        c_step = (1.0 - overlap)
+        rows = np.arange(0, row_count, c_step)
+        cols = np.arange(0, col_count, c_step)
 
-                # store
-                images[:, y1:y2, x1:x2, :] = pred * self.scale
+        # bound
+        rows = rows[rows <= row_count - 1]
+        cols = cols[cols <= col_count - 1]
 
-        # crop and save
-        self.computed = images[:, :h, :w, :].astype(np.float16)
-
-    def save(self, filename:str, fps:int=30) -> None:
-        '''
-        Save computed data to numpy file
-
-        Args:
-            filename (str) : path to save to
-            fps (int) : frames per second
-
-        Returns:
-            None
-        '''
-        filename = os.path.abspath(filename)
-
-        # get image shape
-        size = (self.computed.shape[2], self.computed.shape[1])
-        
         # write video
-        if os.path.splitext(filename)[1] == '.avi':
-            # open video writer
-            fourcc = cv2.VideoWriter_fourcc(*'DIVX')
-            video_out = cv2.VideoWriter(filename, fourcc, fps, size)
+        for image in tqdm(images):
+            # placeholders
+            counts = np.zeros_like(image, dtype=np.float32)
+            computed = np.zeros_like(image, dtype=np.float32)
 
-            # write video
-            print("Writting Video")
-            for frame in tqdm(self.computed):
-                video_out.write((frame * 127.5 / self.scale + 127.5).astype(np.uint8))
+            # build dataset
+            dataset = []
+            for row in rows:
+                for col in cols:
+                    y1 = int(row * pix2pix.IMAGE_HEIGHT)
+                    x1 = int(col * pix2pix.IMAGE_WIDTH)
+                    y2 = int(y1 + pix2pix.IMAGE_HEIGHT)
+                    x2 = int(x1 + pix2pix.IMAGE_WIDTH)
 
-            # release writer
-            video_out.release()
+                    # add
+                    dataset.append(image[y1:y2, x1:x2, :])
+
+            # create as dataset
+            dataset = List_Dataset(dataset)
+
+            # predict
+            _, _, pred = self.model.predict(dataset, shuffle=False, single_batch=False)
+            pred = pred.permute(0, 2, 3, 1).cpu().numpy()
+
+            # reconstruct
+            for i, row in enumerate(rows):
+                for j, col in enumerate(cols):
+                    y1 = int(row * pix2pix.IMAGE_HEIGHT)
+                    x1 = int(col * pix2pix.IMAGE_WIDTH)
+                    y2 = int(y1 + pix2pix.IMAGE_HEIGHT)
+                    x2 = int(x1 + pix2pix.IMAGE_WIDTH)
+
+                    # add image
+                    image = pred[i * len(cols) + j]
+                    computed[y1:y2, x1:x2, :] += image
+                    counts[y1:y2, x1:x2, :] += np.ones_like(image)
+
+            # average
+            computed = computed / counts
+
+            # crop
+            computed = computed[:h, :w, :]
+
+            # colormap
+            if colormap:
+                # average displacement length (sqrt(dx ^ 2 + dy ^ 2) & d_mag)
+                computed = np.sqrt(np.square(computed[:, :, 0]) + np.square(computed[:, :, 1])) + computed[:, :, 2]
+
+                # convert to uint8
+                computed = (computed * 127.5).astype(np.uint8)
+
+                # colormap
+                computed = cv2.applyColorMap(computed, colormap)
+            
+            # raw
+            else:
+                # convert
+                computed = (computed * 127.5 + 127.5).astype(np.uint8)
+
+            # write to steam
+            video_out.write(computed)
         
-        # write gif
-        if os.path.splitext(filename)[1] == '.gif':
-            print("Writting GIF")
-            with imageio.get_writer(filename, mode='I') as writer:
-                for frame in tqdm(self.computed):
-                    writer.append_data((frame * 127.5 / self.scale + 127.5).astype(np.uint8))
+        # close stream
+        video_out.release()
 
 if __name__ == '__main__':
-    vid = Video_Compute('checkpoints\\bos\\epoch_300.pt', scale=10.0)
+    vid = Video_Compute('checkpoints\\bos\\epoch_100.pt')
     vid.read('D:\\BOS\\Sample Data\\P8100004.MOV')
-    vid.compute(start=35)
-    vid.save('computed.gif')
+    vid.compute('computed.avi', overlap=0.5, start=35)#, colormap=cv2.COLORMAP_BONE)
