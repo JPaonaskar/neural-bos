@@ -90,7 +90,6 @@ class VideoGUI():
         video (str) : path to video (default=None)
         scale (float) : visual output scale (default=1.0)
         device (torch.device) : model device (default=torch.device('cuda'))
-
     '''
     def __init__(self, checkpoint:str, video:str=None, scale:float=1.0, device:torch.device=torch.device('cuda')):
         # create model
@@ -174,7 +173,7 @@ class VideoGUI():
         dataset = Cascade_Dataset(frames)
 
         # predict the entire dataset
-        _, _, pred = self.model.predict(dataset, batch_size=len(dataset), shuffle=False)
+        _, _, pred = self.model.predict(dataset, batch_size=16, shuffle=False, single_batch=False)
 
         # convert predictions to numpy
         pred = pred.cpu().detach().permute(0, 2, 3, 1).numpy()

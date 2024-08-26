@@ -409,7 +409,7 @@ class Pix2PixModel(nn.Module):
                 utils.save_sample(x.cpu(), y, pred.cpu(), name=name)
 
 
-    def predict(self, dataset:Dataset, batch_size:int=16, shuffle:bool=False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def predict(self, dataset:Dataset, batch_size:int=16, shuffle:bool=False, single_batch:bool=True) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         '''
         Predict a batch
 
@@ -417,6 +417,7 @@ class Pix2PixModel(nn.Module):
             dataset (Dataset) : torch dataset to train on
             batch_size (int) : size of batch of data (default=16)
             shuffle (bool) : shuffle dataset (default=False)
+            single_batch (bool) : predict just a single batch (default=True)
 
         Returns:
             x (torch.Tensor) : input images
@@ -429,14 +430,35 @@ class Pix2PixModel(nn.Module):
         # create dataloader
         loader = DataLoader(dataset, batch_size, shuffle=shuffle)
 
-        # pull
-        x, y = next(iter(loader))
+        # predict single batch
+        if single_batch:
+            # pull
+            x, y = next(iter(loader))
 
-        # predict
-        pred = self.gen.predict(x.to(self.device))
+            # predict
+            pred = self.gen.predict(x.to(self.device))
+
+        # predict all
+        else:
+            x, y, pred = None, None, None
+            for xi, yi in loader:
+                # predict
+                predi = self.gen.predict(xi.to(self.device))
+
+                # add
+                if type(x) == torch.Tensor:
+                    x = torch.cat([x, xi], dim=0)
+                    y = torch.cat([y, yi], dim=0)
+                    pred = torch.cat([pred, predi], dim=0)
+
+                # write
+                else:
+                    x = xi
+                    y = yi
+                    pred = predi
 
         # return prediction
-        return x.cpu().detach(), y, pred.cpu().detach()
+        return x, y, pred.cpu().detach()
     
     def save_checkpoint(self, epoch:int=0, dirname:str='checkpoints', name:str='checkpoint') -> None:
         '''
