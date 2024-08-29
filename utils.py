@@ -49,8 +49,7 @@ def plot_images(data:torch.Tensor, title:str='data', rows:int=5, cols:int=5, sho
         # reformat image if needed
         if img.min() < 0:
             img = img.type(torch.float)
-            img = img - img.min()
-            img = img / img.max()
+            img = img / np.abs(img).max() * 0.5 + 0.5
 
         # show image
         plt.imshow(img, cmap=plt.cm.binary)

@@ -29,12 +29,14 @@ transform = A.Compose([
 ], additional_targets={'target' : 'image'})
 
 transform_mask = A.Compose([
-    A.RandomShadow((0, 0, 1, 1), num_shadows_upper=1, shadow_dimension=5, shadow_intensity_range=(0.0, 0.0), p=0.2)
+    A.RandomShadow(shadow_roi=(0, 0, 1, 1), num_shadows_upper=1, shadow_dimension=5, shadow_intensity_range=(0.0, 0.0), p=0.2)
 ])
 
 transform_input = A.Compose([
-    A.RandomShadow((0, 0, 1, 1), num_shadows_upper=2, shadow_dimension=5, shadow_intensity_range=(0.5, 0.9), p=0.5),
-    A.Blur((3, 5), p=0.1),
+    A.RandomShadow(shadow_roi=(0, 0, 1, 1), num_shadows_upper=2, shadow_dimension=5, shadow_intensity_range=(0.5, 0.9), p=0.5),
+    A.GaussNoise(var_limit=(10.0, 100.0), mean=0, per_channel=True, noise_scale_factor=0.1, always_apply=None, p=0.4),
+    A.GaussNoise(var_limit=(10.0, 250.0), mean=0, per_channel=True, noise_scale_factor=0.1, always_apply=None, p=0.1),
+    A.Blur(blur_limit=(3, 5), p=0.1),
     ToTensorV2()
 ])
 
@@ -43,9 +45,9 @@ transform_target = A.Compose([
 ])
 
 transform_backgound = A.Compose([
-    A.ColorJitter(brightness=(0.6, 1.2), contrast=(0.7, 1.1), saturation=(0.7, 1.1), hue=(-0.1, 0.1), p=0.7),
+    A.ColorJitter(brightness=(0.3, 1.5), contrast=(0.7, 1.1), saturation=(0.6, 1.4), hue=(-0.3, 0.3), p=0.8),
     A.Perspective(scale=(0.01, 0.05), p=0.7),
-    A.RandomScale((0.0, 0.3), interpolation=cv2.INTER_LINEAR, always_apply=True),
+    A.RandomScale(scale_limit=(0.0, 0.3), interpolation=cv2.INTER_LINEAR, always_apply=True),
     A.RandomRotate90(p=0.2),
     A.Flip(p=0.7),
     A.Blur(blur_limit=5, p=0.5)
@@ -959,10 +961,10 @@ if __name__ == '__main__':
     d_map = Compose_Maps((0.3, map0), (0.2, map1), (0.2, map2), (0.1, map3), (0.1, map4), (0.1, map5))
 
     # create backgrounds
-    background = Hybrid_Background(width=10440, height=10440) # size is large for higher resolution displacements
+    background = Hybrid_Background(width=13000, height=13000) # size is large for higher resolution displacements
 
     # create dataset
-    data = BOS_Dataset_Generator(d_map, background, length=800, width=512, height=512)
+    data = BOS_Dataset_Generator(d_map, background, length=25, width=512, height=512)
     data.build('datasets\\hybrid\\train')
 
     # show part of the dataset
