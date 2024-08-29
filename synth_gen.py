@@ -43,9 +43,9 @@ transform_target = A.Compose([
 ])
 
 transform_backgound = A.Compose([
-    A.ColorJitter(brightness=(0.8, 1.0), contrast=(0.8, 1.1), saturation=(0.8, 1.1), hue=(-0.1, 0.1), p=0.7),
+    A.ColorJitter(brightness=(0.6, 1.2), contrast=(0.7, 1.1), saturation=(0.7, 1.1), hue=(-0.1, 0.1), p=0.7),
     A.Perspective(scale=(0.01, 0.05), p=0.7),
-    A.RandomScale((0.0, 0.2), interpolation=cv2.INTER_LINEAR, always_apply=True),
+    A.RandomScale((0.0, 0.3), interpolation=cv2.INTER_LINEAR, always_apply=True),
     A.RandomRotate90(p=0.2),
     A.Flip(p=0.7),
     A.Blur(blur_limit=5, p=0.5)
@@ -161,14 +161,125 @@ class Perlin(Map):
         # output
         return mask, mask.copy(), dx, dy
 
-class Mach(Map):
+class Channel(Map):
     '''
-    Create machflow like density map
+    Create machflow like density map though a channel
 
     Args:
-        None
+        width (int) : map width
+        height (int) : map height
+        displacement (list[float]) : displacement range (default=[5.0, 10.0])
+        mach (list[float]) : mach number range (default=[2.0, 10.0])
+        gamma (float) : specific heat ratio (default=1.4)
 
     '''
+    def __init__(self, width:int=256, height:int=256, displacement:list[float]=[5.0, 10.0], mach:list[float]=[2.0, 10.0], gamma:float=1.4):
+        self.w = width
+        self.h = height
+
+        self.d = displacement
+        self.m = mach
+        self.g = gamma
+
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Create map
+
+        Args:
+            None
+
+        Returns:
+            bg_mask (np.ndarray) : background object mask
+            dp_mask (np.ndarray) : displaced object mask
+            dx (np.ndarray) : x displacement
+            dy (np.ndarray) : y displacement
+        '''
+        bg_mask = np.ones((self.h, self.w))
+        dp_mask = np.ones((self.h, self.w))
+        dx = np.zeros((self.h, self.w))
+        dy = np.zeros((self.h, self.w))
+
+        return bg_mask, dp_mask, dx, dy
+
+class Wedge(Map):
+    '''
+    Create machflow like density map over a wedge
+
+    Args:
+        width (int) : map width
+        height (int) : map height
+        displacement (list[float]) : displacement range (default=[5.0, 10.0])
+        mach (list[float]) : mach number range (default=[2.0, 10.0])
+        gamma (float) : specific heat ratio (default=1.4)
+
+    '''
+    def __init__(self, width:int=256, height:int=256, displacement:list[float]=[5.0, 10.0], mach:list[float]=[2.0, 10.0], gamma:float=1.4):
+        self.w = width
+        self.h = height
+
+        self.d = displacement
+        self.m = mach
+        self.g = gamma
+
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Create map
+
+        Args:
+            None
+
+        Returns:
+            bg_mask (np.ndarray) : background object mask
+            dp_mask (np.ndarray) : displaced object mask
+            dx (np.ndarray) : x displacement
+            dy (np.ndarray) : y displacement
+        '''
+        bg_mask = np.ones((self.h, self.w))
+        dp_mask = np.ones((self.h, self.w))
+        dx = np.zeros((self.h, self.w))
+        dy = np.zeros((self.h, self.w))
+
+        return bg_mask, dp_mask, dx, dy
+
+class Cylinder(Map):
+    '''
+    Create machflow like density map over a cylinder
+
+    Args:
+        width (int) : map width
+        height (int) : map height
+        displacement (list[float]) : displacement range (default=[5.0, 10.0])
+        mach (list[float]) : mach number range (default=[2.0, 10.0])
+        gamma (float) : specific heat ratio (default=1.4)
+
+    '''
+    def __init__(self, width:int=256, height:int=256, displacement:list[float]=[5.0, 10.0], mach:list[float]=[2.0, 10.0], gamma:float=1.4):
+        self.w = width
+        self.h = height
+
+        self.d = displacement
+        self.m = mach
+        self.g = gamma
+
+    def create(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Create map
+
+        Args:
+            None
+
+        Returns:
+            bg_mask (np.ndarray) : background object mask
+            dp_mask (np.ndarray) : displaced object mask
+            dx (np.ndarray) : x displacement
+            dy (np.ndarray) : y displacement
+        '''
+        bg_mask = np.ones((self.h, self.w))
+        dp_mask = np.ones((self.h, self.w))
+        dx = np.zeros((self.h, self.w))
+        dy = np.zeros((self.h, self.w))
+
+        return bg_mask, dp_mask, dx, dy
 
 class Candle(Map):
     '''
@@ -618,11 +729,18 @@ class BOS_Dataset_Generator():
             image (np.ndarray) : I2I pair
         '''
         # reformat input image
-        input_image = (input_image * 127 + 127).astype(np.uint8)
+        input_image = (input_image * 127.5 + 127.5).astype(np.uint8)
 
         # reformat displacements
-        norm = np.sqrt(2) * self.d
-        target_image = (target_image / norm * 127 + 127).astype(np.uint8)
+        norm = np.sqrt(2.0) * self.d
+        target_image = (target_image / norm * 127.5 + 127.5)
+
+        # clamp
+        target_image[target_image > 255.0] = 255.0
+        target_image[target_image < 0.0] = 0.0
+
+        # convert to uint8
+        target_image = target_image.astype(np.uint8)
 
         # stack together
         image = np.hstack([input_image, target_image])
