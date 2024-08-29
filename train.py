@@ -18,7 +18,7 @@ val = synth_gen.BOS_Dataset('datasets\\hybrid\\val', clamped=True)
 
 i2i = pix2pix.Pix2PixModel()
 
-i2i.learn(train, epochs=100, checkpoints=5)# load_history=True)
+i2i.learn(train, epochs=150, checkpoints=5, last_checkpoint='checkpoints\\epoch_95.pt', load_history=True)
 utils.plot_loss(i2i.history)
 
 x, y, pred = i2i.predict(val, batch_size=25)
